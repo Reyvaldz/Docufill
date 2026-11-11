@@ -1,15 +1,37 @@
 # DocuFill
 
-DocuFill is a lightweight internal document automation application for generating employee forms from templates. It includes a FastAPI backend, SQLite storage, and a React + Tailwind frontend.
+DocuFill is a document-generation application with a FastAPI backend, SQLite
+storage, and a React + Vite frontend.
 
-## Stack
+## Configuration
 
-- Frontend: React.js, Tailwind CSS, Vite
-- Backend: FastAPI + Pydantic
-- Database: SQLite
-- Document processing: python-docx, docxtpl, openpyxl
+The backend reads environment variables in `backend/app/config.py`:
 
-## Quick start
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `DATA_DIR` | Parent directory for the SQLite database and application files. The app creates `templates/`, `generated/`, and `attachments/` here. Relative paths are based on the project root. | `project-root/data` |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed by CORS. | `*` |
+| `MAX_UPLOAD_MB` | Maximum accepted template upload size. Larger files receive HTTP 413. | `10` |
+
+The frontend reads `VITE_API_URL`; it defaults to `/api`, suitable when a reverse
+proxy routes `/api` to the backend. Set it to the API's browser-accessible URL
+when no such proxy is used. Vite reads this value at build time for production
+builds (or when the dev server starts). `.env.example` lists these variables
+with dummy example values; copy and adjust it for your deployment environment.
+
+The API and application logs are written to stdout. Health checks are available
+at `GET /health` and `GET /api/health`, both returning `{"status":"ok"}`.
+
+## Container deployment
+
+Set `DATA_DIR` to the container's persistent data mount, and pass
+`CORS_ORIGINS` and `MAX_UPLOAD_MB` to the backend. Configure the reverse proxy
+to route `/api` to the backend when using the frontend's default API URL. Set
+`VITE_API_URL` to a browser-accessible API URL when the frontend is built
+without that proxy; Vite embeds this value into production assets. The
+`/health` endpoint can be used as the container health check.
+
+## Local development
 
 ### Backend
 
@@ -29,10 +51,22 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
-### Docker Compose
+The frontend defaults to `/api`. For local development without a reverse proxy,
+create `frontend/.env.local` with `VITE_API_URL=http://localhost:8000/api`.
+The development UI is available at `http://localhost:5173`.
+
+## Sample template
+
+`samples/sample-reimbursement.docx` is a small, synthetic template containing
+placeholders such as `{{ nama }}` and `{{ nominal }}`. Upload it through the
+existing template endpoint (the seeded Finance category has ID `1`):
 
 ```bash
-docker compose up --build
+curl -F "file=@samples/sample-reimbursement.docx" \
+  -F "name=Sample Reimbursement" \
+  -F "category_id=1" \
+  http://localhost:8000/api/templates
 ```
 
-The frontend is available on http://localhost:5173 and the API on http://localhost:8000/api.
+Generated documents and uploaded files belong under `DATA_DIR`; that directory
+is ignored by Git and should be mounted to persistent storage in deployments.

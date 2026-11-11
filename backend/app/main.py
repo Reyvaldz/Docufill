@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import shutil
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
+from logging.config import dictConfig
 
 from docxtpl import DocxTemplate
 from docx import Document as DocxDocument
@@ -13,21 +12,44 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from .config import (
+    CORS_ORIGINS,
+    GENERATED_DIR,
+    MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_MB,
+    TEMPLATE_DIR,
+)
 from .database import Base, SessionLocal, engine
 from .models import Category, DocumentRecord, Template
 from .seed import seed_database
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = BASE_DIR / 'data'
-TEMPLATE_DIR = DATA_DIR / 'templates'
-GENERATED_DIR = DATA_DIR / 'generated'
-TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
-GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+dictConfig(
+    {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {'format': '%(asctime)s %(levelname)s %(name)s: %(message)s'},
+        },
+        'handlers': {
+            'stdout': {
+                'class': 'logging.StreamHandler',
+                'formatter': 'default',
+                'stream': 'ext://sys.stdout',
+            },
+        },
+        'root': {'level': 'INFO', 'handlers': ['stdout']},
+        'loggers': {
+            'uvicorn': {'level': 'INFO', 'handlers': ['stdout'], 'propagate': False},
+            'uvicorn.error': {'level': 'INFO', 'handlers': ['stdout'], 'propagate': False},
+            'uvicorn.access': {'level': 'INFO', 'handlers': ['stdout'], 'propagate': False},
+        },
+    }
+)
 
 app = FastAPI(title='DocuFill API', version='1.0.0')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
@@ -49,8 +71,9 @@ def startup_event() -> None:
 
 
 @app.get('/api/health')
+@app.get('/health')
 def health_check() -> dict:
-    return {'status': 'ok', 'service': 'DocuFill API'}
+    return {'status': 'ok'}
 
 
 @app.get('/api/categories')
@@ -98,6 +121,15 @@ async def upload_template(
     category = db.query(Category).filter(Category.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail='Category not found')
+
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f'Template file exceeds the maximum allowed size of {MAX_UPLOAD_MB} MB',
+        )
 
     safe_name = file.filename or f'{name.lower().replace(" ", "-")}.docx'
     target_path = TEMPLATE_DIR / safe_name
