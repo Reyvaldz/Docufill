@@ -16,7 +16,7 @@ def analyze_spreadsheet(file_path: Path, include_existing_fields: bool = False) 
     workbook = load_workbook(file_path)
     candidates = []
     for worksheet in workbook.worksheets:
-        analysis = _analyze_worksheet(worksheet, include_existing_fields)
+        analysis = _analyze_worksheet(workbook, worksheet, include_existing_fields)
         if analysis['headers']:
             candidates.append(analysis)
 
@@ -37,7 +37,11 @@ def analyze_spreadsheet(file_path: Path, include_existing_fields: bool = False) 
     return analysis
 
 
-def _analyze_worksheet(worksheet: Worksheet, include_existing_fields: bool = False) -> dict:
+def _analyze_worksheet(
+    workbook,
+    worksheet: Worksheet,
+    include_existing_fields: bool = False,
+) -> dict:
     max_column = _last_content_column(worksheet)
     merged_ranges = [
         {
@@ -79,6 +83,11 @@ def _analyze_worksheet(worksheet: Worksheet, include_existing_fields: bool = Fal
                             and prototype.data_type != 'f'
                         ),
                         'input_type': input_type,
+                        'options': _list_validation_options(
+                            workbook,
+                            worksheet,
+                            prototype.coordinate,
+                        ),
                     }
                 )
             header_candidates.append(
@@ -197,6 +206,134 @@ def _input_type_for_label(label: str) -> str:
     ):
         return 'number'
     return 'text'
+
+
+def _list_validation_options(
+    workbook,
+    worksheet: Worksheet,
+    cell_reference: str,
+    seen_names: set[str] | None = None,
+) -> list[str]:
+    for validation in worksheet.data_validations.dataValidation:
+        if validation.type != 'list' or not any(
+            _range_contains(cell_range.coord, cell_reference)
+            for cell_range in validation.sqref.ranges
+        ):
+            continue
+        return _resolve_list_formula(
+            workbook,
+            worksheet,
+            validation.formula1,
+            seen_names or set(),
+        )
+    return []
+
+
+def _resolve_list_formula(
+    workbook,
+    worksheet: Worksheet,
+    formula: str | None,
+    seen_names: set[str],
+) -> list[str]:
+    if not formula:
+        return []
+    formula = formula.strip()
+    if formula.startswith('='):
+        formula = formula[1:].strip()
+
+    if len(formula) >= 2 and formula[0] == '"' and formula[-1] == '"':
+        return _split_list_values(formula[1:-1].replace('""', '"'))
+
+    range_match = re.fullmatch(
+        r"(?:(?:'((?:[^']|'')+)'|([^!]+))!)?\$?([A-Z]{1,3})\$?(\d+)"
+        r"(?::\$?([A-Z]{1,3})\$?(\d+))?",
+        formula,
+        flags=re.IGNORECASE,
+    )
+    if range_match:
+        sheet_name = (range_match.group(1) or range_match.group(2) or '').replace("''", "'")
+        source_sheet = workbook[sheet_name] if sheet_name else worksheet
+        min_col, min_row = _cell_coordinates(
+            range_match.group(3),
+            range_match.group(4),
+        )
+        max_col, max_row = _cell_coordinates(
+            range_match.group(5) or range_match.group(3),
+            range_match.group(6) or range_match.group(4),
+        )
+        values = []
+        for row in source_sheet.iter_rows(
+            min_row=min_row,
+            max_row=max_row,
+            min_col=min_col,
+            max_col=max_col,
+        ):
+            values.extend(
+                str(cell.value).strip()
+                for cell in row
+                if cell.value not in (None, '') and not str(cell.value).startswith('=')
+            )
+        return _unique_values(values)
+
+    name = formula.removeprefix('_xlnm.')
+    if name.casefold() in seen_names:
+        return []
+    normalized_seen = {*seen_names, name.casefold()}
+    defined_name = next(
+        (
+            candidate
+            for candidate_name, candidate in workbook.defined_names.items()
+            if candidate_name.casefold() == name.casefold()
+        ),
+        None,
+    )
+    if defined_name is None:
+        defined_name = next(
+            (
+                candidate
+                for candidate_name, candidate in worksheet.defined_names.items()
+                if candidate_name.casefold() == name.casefold()
+            ),
+            None,
+        )
+    if defined_name is not None:
+        return _resolve_list_formula(
+            workbook,
+            worksheet,
+            defined_name.attr_text,
+            normalized_seen,
+        )
+    return []
+
+
+def _cell_coordinates(column: str, row: str) -> tuple[int, int]:
+    from openpyxl.utils.cell import coordinate_to_tuple
+
+    return coordinate_to_tuple(f'{column}{row}')[::-1]
+
+
+def _range_contains(range_reference: str, cell_reference: str) -> bool:
+    min_col, min_row, max_col, max_row = range_boundaries(range_reference)
+    col, row = _cell_coordinates(
+        re.match(r'[A-Z]+', cell_reference, re.IGNORECASE).group(),
+        re.search(r'\d+', cell_reference).group(),
+    )
+    return min_col <= col <= max_col and min_row <= row <= max_row
+
+
+def _split_list_values(value: str) -> list[str]:
+    return _unique_values(item.strip() for item in value.split(',') if item.strip())
+
+
+def _unique_values(values) -> list[str]:
+    unique = []
+    seen = set()
+    for value in values:
+        normalized = value.casefold()
+        if normalized not in seen:
+            unique.append(value)
+            seen.add(normalized)
+    return unique
 
 
 def _last_content_column(worksheet: Worksheet) -> int:

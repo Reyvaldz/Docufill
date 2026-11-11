@@ -1036,15 +1036,36 @@ function App() {
                               className="block text-sm font-medium text-slate-700"
                             >
                               {header.label}
-                              <input
-                                type={header.input_type || 'text'}
-                                step={header.input_type === 'number' ? 'any' : undefined}
-                                value={item[header.key] || ''}
-                                onChange={(event) =>
-                                  updateItemValue(rowIndex, header.key, event.target.value)
-                                }
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                              />
+                              {header.options?.length ? (
+                                <select
+                                  value={item[header.key] || ''}
+                                  onChange={(event) =>
+                                    updateItemValue(rowIndex, header.key, event.target.value)
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                                >
+                                  <option value="">Pilih {header.label}</option>
+                                  {item[header.key] &&
+                                    !header.options.includes(item[header.key]) && (
+                                      <option value={item[header.key]}>{item[header.key]}</option>
+                                    )}
+                                  {header.options.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type={header.input_type || 'text'}
+                                  step={header.input_type === 'number' ? 'any' : undefined}
+                                  value={item[header.key] || ''}
+                                  onChange={(event) =>
+                                    updateItemValue(rowIndex, header.key, event.target.value)
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                                />
+                              )}
                             </label>
                           ))}
                       </div>

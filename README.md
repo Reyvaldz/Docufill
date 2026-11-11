@@ -93,6 +93,9 @@ spreadsheet totals can calculate. Numbering columns such as `No.` are filled
 automatically. Columns are offered as item inputs only when the first row below
 their header is blank. Use **Tambah item** to add rows, up to the number of
 blank rows before the template total row.
+If a template column has an Excel list validation, its form field becomes a
+dropdown populated from that template's list (including lists stored in named
+ranges or another sheet).
 
 If a needed field such as an application date is not detected, use
 **Tambah isian** in the form. Enter its label, the blank cell address on the
