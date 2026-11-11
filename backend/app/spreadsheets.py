@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import copy
 from pathlib import Path
 
@@ -64,9 +65,7 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
                     'label': str(worksheet.cell(row_index, column_index).value).strip(),
                     'column': column_index,
                     'cell': worksheet.cell(row_index, column_index).coordinate,
-                    'editable': (
-                        worksheet.cell(row_index + 1, column_index).data_type != 'f'
-                    ),
+                    'editable': worksheet.cell(row_index + 1, column_index).value in (None, ''),
                 }
                 for column_index in columns
             ]
@@ -102,6 +101,8 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
             cell = worksheet.cell(row_index, column_index)
             label = cell.value
             if not isinstance(label, str) or not label.strip() or label.startswith('='):
+                continue
+            if not _is_document_input_label(label):
                 continue
 
             label_right = _merged_right_edge(row_index, column_index, merged_ranges)
@@ -146,6 +147,22 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
         'fields': fields,
         'diagnostics': diagnostics,
     }
+
+
+def _is_document_input_label(label: str) -> bool:
+    normalized = re.sub(r'[^a-z0-9]+', ' ', label.casefold()).strip()
+    accepted_labels = {
+        'nama',
+        'nama karyawan',
+        'nama pemohon',
+        'employee name',
+        'departemen',
+        'nama departemen',
+        'nama departemen business unit',
+        'business unit',
+        'department',
+    }
+    return normalized in accepted_labels
 
 
 def _merged_right_edge(row: int, column: int, merged_ranges: list[dict]) -> int:

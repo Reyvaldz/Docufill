@@ -71,16 +71,19 @@ The development UI is available at `http://localhost:5173`.
 
 ## Excel template format
 
-The automatic form builder reads the active sheet in `.xlsx` files. Put at
-least two adjacent column headers on the first table-header row; rows below it
-become repeatable item rows. The app copies the original workbook and fills
-these rows, preserving the template formatting and formulas.
+The automatic form builder selects the sheet with the clearest table structure
+in `.xlsx` files. Put at least two adjacent column headers on the table-header
+row; blank cells directly below those headers become repeatable item inputs.
+The app copies the original workbook and fills these rows, preserving the
+template formatting and formulas.
 
-To collect document-level information, put labels above the table with an
-empty cell or merged input area immediately to the right, for example `Nama`
-in A1 and `Departemen` in C1. The form shows the detected input cell addresses
-before you fill it in. Item quantities, prices, and other values are entered as
-text fields; use **Tambah item** to add rows.
+For document-level information, use labels such as `Nama Karyawan` and
+`Nama Departemen / Business Unit` above the table, with a blank cell or merged
+input area immediately to the right. Only recognized name and department
+labels are shown as document information; other text such as titles, reference
+numbers, and prefilled values is left untouched. Columns are offered as item
+inputs only when the first row below their header is blank. Use **Tambah item**
+to add rows.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance

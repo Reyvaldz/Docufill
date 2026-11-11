@@ -603,11 +603,6 @@ function App() {
                 {templateAnalysis.fields.length > 0 && (
                   <section className="space-y-3">
                     <h3 className="font-semibold text-slate-900">Informasi dokumen</h3>
-                    <p className="text-xs text-slate-500">
-                      Sel kosong yang terdeteksi: {templateAnalysis.fields
-                        .map((field) => `${field.label} (${field.input_cell})`)
-                        .join(', ')}
-                    </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {templateAnalysis.fields.map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
