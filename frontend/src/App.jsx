@@ -7,6 +7,7 @@ import {
   Copy as CopyIcon,
   Download,
   FileText,
+  Files,
   FolderKanban,
   LayoutGrid,
   Pencil,
@@ -36,7 +37,15 @@ const navigation = [
   { label: 'Dashboard', icon: LayoutGrid, target: 'dashboard' },
   { label: 'Templates', icon: FileText, target: 'templates' },
   { label: 'Documents', icon: FolderKanban, target: 'documents' },
+  { label: 'All Documents', icon: Files, target: 'all-documents' },
 ]
+
+const pageTitles = {
+  dashboard: 'Dashboard',
+  templates: 'Templates',
+  documents: 'Documents',
+  'all-documents': 'All Documents',
+}
 
 function App() {
   const [dashboard, setDashboard] = useState(defaultDashboard)
@@ -138,7 +147,7 @@ function App() {
 
   const navigate = (item) => {
     setActiveSection(item.target)
-    document.getElementById(item.target)?.scrollIntoView({ behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const openNewDocument = (template = spreadsheetTemplates[0]) => {
@@ -406,21 +415,27 @@ function App() {
         </aside>
 
         <main className="flex-1 p-4 md:p-8">
-          <header id="dashboard" className="mb-8 scroll-mt-8 border-b border-slate-200 pb-6">
+          <header className="mb-8 border-b border-slate-200 pb-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Overview</p>
-                <h2 className="mt-2 text-3xl font-bold text-slate-900">Document automation dashboard</h2>
+                <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
+                  DocuFill
+                </p>
+                <h2 className="mt-2 text-3xl font-bold text-slate-900">
+                  {pageTitles[activeSection]}
+                </h2>
               </div>
 
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={exportReport}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
-                >
-                  Export report
-                </button>
+                {['documents', 'all-documents'].includes(activeSection) && (
+                  <button
+                    type="button"
+                    onClick={exportReport}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
+                  >
+                    Export report
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => openNewDocument()}
@@ -431,13 +446,21 @@ function App() {
                 </button>
               </div>
             </div>
-            <nav className="mt-5 flex gap-2 overflow-x-auto lg:hidden" aria-label="Main navigation">
+            <nav
+              className="mt-5 flex gap-2 overflow-x-auto lg:hidden"
+              aria-label="Main navigation"
+            >
               {navigation.map((item) => (
                 <button
                   key={item.label}
                   type="button"
                   onClick={() => navigate(item)}
-                  className="whitespace-nowrap rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm"
+                  aria-current={activeSection === item.target ? 'page' : undefined}
+                  className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium shadow-sm ${
+                    activeSection === item.target
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-white text-slate-700'
+                  }`}
                 >
                   {item.label}
                 </button>
@@ -459,10 +482,10 @@ function App() {
 
           {loading ? (
             <div className="rounded-2xl bg-white p-6 text-sm text-slate-500 shadow-card">
-              Loading dashboard…
+              Loading…
             </div>
-          ) : (
-            <>
+          ) : activeSection === 'dashboard' ? (
+            <section className="space-y-8">
               <section className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {stats.map(({ label, value, icon: Icon, accent }) => (
                   <div key={label} className="rounded-2xl bg-white p-5 shadow-card ring-1 ring-slate-100">
@@ -477,42 +500,9 @@ function App() {
                   </div>
                 ))}
               </section>
-
-              <section id="documents" className="scroll-mt-8">
-                <div className="card">
-                  <div className="mb-5 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
-                        Documents
-                      </p>
-                      <h3 className="text-xl font-semibold text-slate-900">Recent document history</h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveSection('documents')
-                        document.getElementById('documents-list')?.scrollIntoView({ behavior: 'smooth' })
-                      }}
-                      className="text-sm font-medium text-brand-700"
-                    >
-                      View all
-                    </button>
-                  </div>
-
-                  <DocumentTable
-                    documents={dashboard.latest_documents || []}
-                    onDownload={downloadDocument}
-                    onDelete={deleteDocument}
-                    onEdit={(item) => openStoredDocument(item, 'edit')}
-                    onCopy={(item) => openStoredDocument(item, 'copy')}
-                    deletingDocumentId={deletingDocumentId}
-                    openingDocumentId={openingDocumentId}
-                  />
-                </div>
-
-              </section>
-
-              <section id="templates" className="mt-8 scroll-mt-8 card">
+            </section>
+          ) : activeSection === 'templates' ? (
+            <section className="card">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
@@ -583,8 +573,37 @@ function App() {
                   ))}
                 </div>
               </section>
-
-              <section id="documents-list" className="mt-8 scroll-mt-8 card">
+          ) : activeSection === 'documents' ? (
+            <section className="card">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
+                    Documents
+                  </p>
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    Dokumen terbaru
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(navigation.find((item) => item.target === 'all-documents'))}
+                  className="text-sm font-medium text-brand-700"
+                >
+                  Lihat semua
+                </button>
+              </div>
+              <DocumentTable
+                documents={dashboard.latest_documents || []}
+                onDownload={downloadDocument}
+                onDelete={deleteDocument}
+                onEdit={(item) => openStoredDocument(item, 'edit')}
+                onCopy={(item) => openStoredDocument(item, 'copy')}
+                deletingDocumentId={deletingDocumentId}
+                openingDocumentId={openingDocumentId}
+              />
+            </section>
+          ) : (
+            <section className="card">
                 <h3 className="mb-4 text-xl font-semibold text-slate-900">All documents</h3>
                 <DocumentTable
                   documents={documents}
@@ -596,7 +615,6 @@ function App() {
                   openingDocumentId={openingDocumentId}
                 />
               </section>
-            </>
           )}
         </main>
       </div>

@@ -3,6 +3,8 @@
 DocuFill is a personal document-generation application with a FastAPI backend,
 SQLite storage, and a React + Vite frontend. Upload an Excel template, review
 the fields detected in it, fill in the form, and download a generated copy.
+The interface keeps Dashboard, Templates, recent Documents, and All Documents
+on separate pages accessible from the navigation menu.
 
 ## Configuration
 
