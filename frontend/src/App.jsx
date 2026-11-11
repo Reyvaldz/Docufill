@@ -2,18 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
   ArrowUpRight,
-  BriefcaseBusiness,
   CalendarDays,
-  CalendarClock,
   CircleDollarSign,
   Download,
   FileText,
   FolderKanban,
   LayoutGrid,
   Plus,
-  ShieldCheck,
   Trash2,
-  Users,
   X,
 } from 'lucide-react'
 
@@ -37,10 +33,7 @@ const statusStyles = {
 const navigation = [
   { label: 'Dashboard', icon: LayoutGrid, target: 'dashboard' },
   { label: 'Templates', icon: FileText, target: 'templates' },
-  { label: 'Form Builder', icon: BriefcaseBusiness, action: 'new-document' },
   { label: 'Documents', icon: FolderKanban, target: 'documents' },
-  { label: 'Users', icon: Users, target: 'users' },
-  { label: 'Workflow', icon: CalendarClock, target: 'workflow' },
 ]
 
 function App() {
@@ -55,6 +48,15 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
   const [deletingDocumentId, setDeletingDocumentId] = useState(null)
+  const [formTemplateId, setFormTemplateId] = useState('')
+  const [templateAnalysis, setTemplateAnalysis] = useState(null)
+  const [analysisError, setAnalysisError] = useState('')
+  const [formFields, setFormFields] = useState({})
+  const [itemRows, setItemRows] = useState([{}])
+
+  const spreadsheetTemplates = templates.filter((template) =>
+    template.file_name?.toLowerCase().endsWith('.xlsx'),
+  )
 
   const refreshData = async () => {
     const [dashboardResponse, templatesResponse, documentsResponse, categoriesResponse] =
@@ -129,19 +131,49 @@ function App() {
   )
 
   const navigate = (item) => {
-    if (item.action === 'new-document') {
-      setDialog('new-document')
-      return
-    }
-
-    if (item.target === 'users' || item.target === 'workflow') {
-      setNotice(`Menu ${item.label} belum tersedia di API aplikasi ini.`)
-      return
-    }
-
     setActiveSection(item.target)
     document.getElementById(item.target)?.scrollIntoView({ behavior: 'smooth' })
   }
+
+  const openNewDocument = (template = spreadsheetTemplates[0]) => {
+    if (!template) {
+      setNotice('Unggah template Excel (.xlsx) terlebih dahulu untuk mulai mengisi dokumen.')
+      setDialog('upload-template')
+      return
+    }
+
+    setFormTemplateId(String(template.id))
+    setTemplateAnalysis(null)
+    setAnalysisError('')
+    setFormFields({})
+    setItemRows([{}])
+    setDialog('new-document')
+  }
+
+  useEffect(() => {
+    if (dialog !== 'new-document' || !formTemplateId) return undefined
+
+    let active = true
+    axios
+      .get(`${API_URL}/templates/${formTemplateId}/analysis`)
+      .then(({ data }) => {
+        if (!active) return
+        setTemplateAnalysis(data)
+        setFormFields(Object.fromEntries(data.fields.map((field) => [field.key, ''])))
+        setItemRows([{}])
+      })
+      .catch((error) => {
+        if (!active) return
+        console.error('Unable to analyze spreadsheet template', error)
+        setAnalysisError(
+          error.response?.data?.detail || 'Template Excel tidak dapat dianalisis.',
+        )
+      })
+
+    return () => {
+      active = false
+    }
+  }, [dialog, formTemplateId])
 
   const exportReport = () => {
     const rows = [
@@ -168,9 +200,30 @@ function App() {
 
   const generateDocument = async (event) => {
     event.preventDefault()
+    if (!templateAnalysis) {
+      setNotice('Analisis template belum selesai.')
+      return
+    }
+
     const formData = new FormData(event.currentTarget)
-    const payload = Object.fromEntries(formData.entries())
-    payload.nominal = Number(payload.nominal || 0)
+    const items = itemRows.filter((item) =>
+      Object.values(item).some((value) => String(value || '').trim()),
+    )
+    if (!items.length) {
+      setNotice('Isi setidaknya satu baris item sebelum membuat dokumen.')
+      return
+    }
+
+    const selectedTemplate = spreadsheetTemplates.find(
+      (template) => String(template.id) === formTemplateId,
+    )
+    const payload = {
+      template_id: Number(formTemplateId),
+      name: formData.get('document_name'),
+      category: selectedTemplate?.category_name || '',
+      fields: formFields,
+      items,
+    }
 
     setSaving(true)
     try {
@@ -201,6 +254,12 @@ function App() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const updateItemValue = (rowIndex, key, value) => {
+    setItemRows((currentRows) =>
+      currentRows.map((row, index) => (index === rowIndex ? { ...row, [key]: value } : row)),
+    )
   }
 
   const deleteTemplate = async (template) => {
@@ -298,16 +357,7 @@ function App() {
             </nav>
           </div>
 
-          <div className="rounded-2xl border border-slate-700 bg-slate-900/80 p-4">
-            <p className="mb-2 text-xs uppercase tracking-[0.22em] text-slate-400">Access</p>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-white">Admin</p>
-                <p className="text-xs text-slate-400">Document Control</p>
-              </div>
-              <ShieldCheck className="text-emerald-400" size={18} />
-            </div>
-          </div>
+          <p className="text-xs text-slate-500">Personal workspace</p>
         </aside>
 
         <main className="flex-1 p-4 md:p-8">
@@ -328,7 +378,7 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDialog('new-document')}
+                  onClick={() => openNewDocument()}
                   className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-brand-600/20 hover:bg-brand-700"
                 >
                   <Plus size={16} />
@@ -337,7 +387,7 @@ function App() {
               </div>
             </div>
             <nav className="mt-5 flex gap-2 overflow-x-auto lg:hidden" aria-label="Main navigation">
-              {navigation.slice(0, 4).map((item) => (
+              {navigation.map((item) => (
                 <button
                   key={item.label}
                   type="button"
@@ -383,7 +433,7 @@ function App() {
                 ))}
               </section>
 
-              <section id="documents" className="scroll-mt-8 grid gap-6 xl:grid-cols-[2fr_1fr]">
+              <section id="documents" className="scroll-mt-8">
                 <div className="card">
                   <div className="mb-5 flex items-center justify-between">
                     <div>
@@ -412,36 +462,6 @@ function App() {
                   />
                 </div>
 
-                <div id="workflow" className="space-y-6 scroll-mt-8">
-                  <div className="card">
-                    <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Workflow</p>
-                    <h3 className="mt-2 text-xl font-semibold text-slate-900">Document lifecycle</h3>
-                    <ol className="mt-5 space-y-4">
-                      {['Select template', 'Configure fields', 'Review preview', 'Generate document'].map(
-                        (step, index) => (
-                          <li key={step} className="flex items-start gap-3">
-                            <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700">
-                              {index + 1}
-                            </span>
-                            <span className="text-sm text-slate-700">{step}</span>
-                          </li>
-                        ),
-                      )}
-                    </ol>
-                  </div>
-
-                  <div className="card bg-slate-900 text-slate-50">
-                    <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-400">Activity</p>
-                    <ul className="mt-5 space-y-3 text-sm text-slate-200">
-                      {(dashboard.recent_activity || []).map((activity) => (
-                        <li key={activity} className="flex items-start gap-3">
-                          <span className="mt-1 h-2 w-2 rounded-full bg-emerald-400" />
-                          {activity}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
               </section>
 
               <section id="templates" className="mt-8 scroll-mt-8 card">
@@ -451,6 +471,9 @@ function App() {
                       Template library
                     </p>
                     <h3 className="text-xl font-semibold text-slate-900">Managed templates</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Unggah .xlsx untuk membaca kolom otomatis dan membuat form dokumen.
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -461,6 +484,11 @@ function App() {
                   </button>
                 </div>
 
+                {!templates.length && (
+                  <p className="text-sm text-slate-500">
+                    Belum ada template. Unggah file Excel untuk mulai.
+                  </p>
+                )}
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {templates.map((template) => (
                     <div key={template.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -477,16 +505,17 @@ function App() {
                       <div className="mt-4 space-y-3 text-xs text-slate-500">
                         <div className="flex items-center justify-between">
                           <span>{template.category_name || 'Finance'}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDialog('new-document')
-                              setNotice(`Template "${template.name}" siap digunakan.`)
-                            }}
-                            className="font-medium text-brand-700"
-                          >
-                            Use
-                          </button>
+                          {template.file_name?.toLowerCase().endsWith('.xlsx') ? (
+                            <button
+                              type="button"
+                              onClick={() => openNewDocument(template)}
+                              className="font-medium text-brand-700"
+                            >
+                              Use
+                            </button>
+                          ) : (
+                            <span className="text-slate-400">Excel diperlukan untuk form otomatis</span>
+                          )}
                         </div>
                         <p className="flex items-center gap-1.5">
                           <CalendarDays size={14} />
@@ -522,39 +551,132 @@ function App() {
       </div>
 
       {dialog === 'new-document' && (
-        <Modal title="Create document" onClose={() => setDialog(null)}>
+        <Modal title="Isi dokumen dari template" onClose={() => setDialog(null)}>
           <form onSubmit={generateDocument} className="space-y-4">
             <label className="block text-sm font-medium text-slate-700">
-              Template
+              Template Excel
               <select
-                name="template_name"
+                value={formTemplateId}
                 required
-                defaultValue={templates[0]?.name || ''}
+                onChange={(event) => {
+                  const template = spreadsheetTemplates.find(
+                    (item) => String(item.id) === event.target.value,
+                  )
+                  if (template) openNewDocument(template)
+                }}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               >
-                {templates.map((template) => (
-                  <option key={template.id} value={template.name}>
+                {spreadsheetTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
                     {template.name}
                   </option>
                 ))}
               </select>
             </label>
             <label className="block text-sm font-medium text-slate-700">
-              Document name
+              Nama dokumen hasil
               <input
-                name="name"
+                name="document_name"
                 placeholder="Contoh: Reimbursement November"
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
             </label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField name="nama" label="Employee name" required />
-              <FormField name="tanggal" label="Date" type="date" />
-              <FormField name="divisi" label="Department" />
-              <FormField name="nominal" label="Amount (IDR)" type="number" />
-            </div>
-            <FormField name="keperluan" label="Purpose" required />
-            <FormField name="keterangan" label="Notes" />
+            {analysisError && <p role="alert" className="text-sm text-red-700">{analysisError}</p>}
+            {!templateAnalysis && !analysisError && (
+              <p className="text-sm text-slate-500">Sedang membaca struktur template Excel…</p>
+            )}
+            {templateAnalysis && (
+              <>
+                <p className="text-sm text-slate-600">
+                  Sheet <strong>{templateAnalysis.sheet_name}</strong>. Isi informasi dasar dan
+                  tambahkan baris item sesuai kebutuhan.
+                </p>
+                {templateAnalysis.fields.length > 0 && (
+                  <section className="space-y-3">
+                    <h3 className="font-semibold text-slate-900">Informasi dokumen</h3>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {templateAnalysis.fields.map((field) => (
+                        <label key={field.key} className="block text-sm font-medium text-slate-700">
+                          {field.label}
+                          <input
+                            type="text"
+                            value={formFields[field.key] || ''}
+                            onChange={(event) =>
+                              setFormFields((current) => ({
+                                ...current,
+                                [field.key]: event.target.value,
+                              }))
+                            }
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-slate-900">Rincian item</h3>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setItemRows((current) => [...current, {}])
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700"
+                    >
+                      <Plus size={15} />
+                      Tambah item
+                    </button>
+                  </div>
+                  {templateAnalysis.headers.some((header) => !header.editable) && (
+                    <p className="text-xs text-slate-500">
+                      Kolom dengan rumus pada template akan dihitung otomatis.
+                    </p>
+                  )}
+                  {itemRows.map((item, rowIndex) => (
+                    <div
+                      key={rowIndex}
+                      className="space-y-3 rounded-xl border border-slate-200 p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-700">Item {rowIndex + 1}</p>
+                        {itemRows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setItemRows((current) =>
+                                current.filter((_, index) => index !== rowIndex),
+                              )
+                            }
+                            className="text-xs font-medium text-red-700"
+                          >
+                            Hapus item
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {templateAnalysis.headers.filter((header) => header.editable).map((header) => (
+                          <label
+                            key={header.key}
+                            className="block text-sm font-medium text-slate-700"
+                          >
+                            {header.label}
+                            <input
+                              type="text"
+                              value={item[header.key] || ''}
+                              onChange={(event) =>
+                                updateItemValue(rowIndex, header.key, event.target.value)
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              </>
+            )}
             <ModalActions onCancel={() => setDialog(null)} saving={saving} submitLabel="Generate" />
           </form>
         </Modal>
@@ -581,11 +703,11 @@ function App() {
             </label>
             <FormField name="description" label="Description" />
             <label className="block text-sm font-medium text-slate-700">
-              DOCX file
+              Excel file (.xlsx)
               <input
                 name="file"
                 type="file"
-                accept=".docx"
+                accept=".xlsx"
                 required
                 className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2"
               />

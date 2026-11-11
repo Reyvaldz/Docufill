@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import shutil
 import logging
+import re
+import uuid
 from datetime import datetime
 from logging.config import dictConfig
+from pathlib import Path
+from zipfile import BadZipFile
 
 from docxtpl import DocxTemplate
 from docx import Document as DocxDocument
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -23,6 +28,7 @@ from .config import (
 from .database import Base, SessionLocal, engine
 from .models import Category, DocumentRecord, Template
 from .seed import seed_database
+from .spreadsheets import analyze_spreadsheet, generate_spreadsheet
 
 dictConfig(
     {
@@ -133,7 +139,11 @@ async def upload_template(
             detail=f'Template file exceeds the maximum allowed size of {MAX_UPLOAD_MB} MB',
         )
 
-    safe_name = file.filename or f'{name.lower().replace(" ", "-")}.docx'
+    safe_name = Path((file.filename or '').replace('\\', '/')).name
+    if not safe_name:
+        raise HTTPException(status_code=400, detail='Template file name is required')
+    if Path(safe_name).suffix.lower() not in {'.xlsx', '.docx'}:
+        raise HTTPException(status_code=415, detail='Template harus berupa file .xlsx atau .docx')
     target_path = TEMPLATE_DIR / safe_name
     with target_path.open('wb') as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -179,6 +189,24 @@ def delete_template(template_id: int, db: Session = Depends(get_db)) -> dict:
     db.delete(template)
     db.commit()
     return {'message': 'Template deleted successfully'}
+
+
+@app.get('/api/templates/{template_id}/analysis')
+def analyze_template(template_id: int, db: Session = Depends(get_db)) -> dict:
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail='Template not found')
+    if not template.file_name or Path(template.file_name).suffix.lower() != '.xlsx':
+        raise HTTPException(status_code=415, detail='Analisis otomatis saat ini mendukung template .xlsx.')
+
+    template_path = (TEMPLATE_DIR / template.file_name).resolve()
+    if not template_path.is_relative_to(TEMPLATE_DIR.resolve()) or not template_path.is_file():
+        raise HTTPException(status_code=404, detail='Template file not found')
+
+    try:
+        return analyze_spreadsheet(template_path)
+    except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.get('/api/documents')
@@ -242,11 +270,60 @@ def delete_document(document_id: int, db: Session = Depends(get_db)) -> dict:
 @app.post('/api/documents/generate')
 def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
     template_name = payload.get('template_name', 'Reimbursement Form')
-    template_row = db.query(Template).filter(Template.name == template_name).first()
+    template_id = payload.get('template_id')
+    template_query = db.query(Template)
+    if template_id is not None:
+        template_row = template_query.filter(Template.id == template_id).first()
+        template_name = template_row.name if template_row else template_name
+    else:
+        template_row = template_query.filter(Template.name == template_name).first()
     if not template_row:
         raise HTTPException(status_code=404, detail='Template not found')
 
-    name = payload.get('name', f'{template_name} {datetime.now().strftime("%Y%m%d-%H%M")}')
+    name = payload.get('name') or f'{template_name} {datetime.now().strftime("%Y%m%d-%H%M")}'
+    if template_row.file_name and Path(template_row.file_name).suffix.lower() == '.xlsx':
+        template_path = (TEMPLATE_DIR / template_row.file_name).resolve()
+        if not template_path.is_relative_to(TEMPLATE_DIR.resolve()) or not template_path.is_file():
+            raise HTTPException(status_code=404, detail='Template file not found')
+        try:
+            analysis = analyze_spreadsheet(template_path)
+            file_stem = re.sub(r'[^a-zA-Z0-9_-]+', '-', str(name)).strip('-').lower()
+            generated_name = f'{file_stem or "document"}-{uuid.uuid4().hex[:8]}.xlsx'
+            output_path = GENERATED_DIR / generated_name
+            generate_spreadsheet(
+                template_path,
+                output_path,
+                analysis,
+                payload.get('fields', {}),
+                payload.get('items', []),
+            )
+        except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+        document_record = DocumentRecord(
+            name=name,
+            category=payload.get(
+                'category',
+                template_row.category.name if template_row.category else 'Finance',
+            ),
+            template_name=template_row.name,
+            template_version=template_row.version,
+            created_by=payload.get('created_by', 'user@company'),
+            status='generated',
+            file_path=f'/api/files/{generated_name}',
+            template_id=template_row.id,
+        )
+        db.add(document_record)
+        db.commit()
+        db.refresh(document_record)
+        return {
+            'id': document_record.id,
+            'name': document_record.name,
+            'status': document_record.status,
+            'download_url': document_record.file_path,
+            'message': 'Document generated successfully.',
+        }
+
     context = {
         'nama': payload.get('nama', 'Reyval'),
         'tanggal': payload.get('tanggal', datetime.now().strftime('%d %B %Y')),
