@@ -81,5 +81,10 @@ curl -F "file=@samples/sample-reimbursement.docx" \
   http://localhost:8000/api/templates
 ```
 
+Uploaded templates show their creation date in the template library and can be
+removed with the Delete template button or `DELETE /api/templates/{template_id}`.
+Removing a template keeps previously generated documents; its stored DOCX file
+is removed when no other template references it.
+
 Generated documents and uploaded files belong under `DATA_DIR`; that directory
 is ignored by Git and should be mounted to persistent storage in deployments.

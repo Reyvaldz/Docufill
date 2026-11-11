@@ -4,7 +4,8 @@ from .models import Category, DocumentRecord, Template
 
 
 def seed_database(db: Session) -> None:
-    if db.query(Category).count() == 0:
+    is_new_database = db.query(Category).count() == 0
+    if is_new_database:
         categories = [
             Category(name='Finance', description='Reimbursement, expense reports, and payment support.'),
             Category(name='General Affairs', description='Travel, accommodation, and facility requests.'),
@@ -14,7 +15,7 @@ def seed_database(db: Session) -> None:
         db.add_all(categories)
         db.commit()
 
-    if db.query(Template).count() == 0:
+    if is_new_database and db.query(Template).count() == 0:
         finance = db.query(Category).filter(Category.name == 'Finance').one()
         ga = db.query(Category).filter(Category.name == 'General Affairs').one()
         hr = db.query(Category).filter(Category.name == 'Human Resources').one()

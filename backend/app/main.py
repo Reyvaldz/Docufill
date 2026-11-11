@@ -157,6 +157,28 @@ async def upload_template(
     }
 
 
+@app.delete('/api/templates/{template_id}')
+def delete_template(template_id: int, db: Session = Depends(get_db)) -> dict:
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail='Template not found')
+
+    should_delete_file = bool(
+        template.file_name
+        and not db.query(Template)
+        .filter(Template.file_name == template.file_name, Template.id != template.id)
+        .first()
+    )
+    file_path = (TEMPLATE_DIR / template.file_name).resolve() if should_delete_file else None
+    template_dir = TEMPLATE_DIR.resolve()
+    if file_path and file_path.is_relative_to(template_dir) and file_path.is_file():
+        file_path.unlink()
+
+    db.delete(template)
+    db.commit()
+    return {'message': 'Template deleted successfully'}
+
+
 @app.get('/api/documents')
 def list_documents(db: Session = Depends(get_db)) -> list[dict]:
     documents = db.query(DocumentRecord).order_by(DocumentRecord.created_at.desc()).all()

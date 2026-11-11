@@ -3,6 +3,7 @@ import axios from 'axios'
 import {
   ArrowUpRight,
   BriefcaseBusiness,
+  CalendarDays,
   CalendarClock,
   CircleDollarSign,
   Download,
@@ -11,6 +12,7 @@ import {
   LayoutGrid,
   Plus,
   ShieldCheck,
+  Trash2,
   Users,
   X,
 } from 'lucide-react'
@@ -51,6 +53,7 @@ function App() {
   const [dialog, setDialog] = useState(null)
   const [notice, setNotice] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deletingTemplateId, setDeletingTemplateId] = useState(null)
 
   const refreshData = async () => {
     const [dashboardResponse, templatesResponse, documentsResponse, categoriesResponse] =
@@ -196,6 +199,31 @@ function App() {
       setNotice(error.response?.data?.detail || 'Template gagal diunggah. Silakan coba lagi.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const deleteTemplate = async (template) => {
+    const confirmed = window.confirm(
+      `Hapus template "${template.name}"? Dokumen yang sudah dibuat tidak akan dihapus.`,
+    )
+    if (!confirmed) return
+
+    setDeletingTemplateId(template.id)
+    try {
+      await axios.delete(`${API_URL}/templates/${template.id}`)
+      setTemplates((currentTemplates) =>
+        currentTemplates.filter((item) => item.id !== template.id),
+      )
+      setDashboard((currentDashboard) => ({
+        ...currentDashboard,
+        total_templates: Math.max(0, currentDashboard.total_templates - 1),
+      }))
+      setNotice(`Template "${template.name}" berhasil dihapus.`)
+    } catch (error) {
+      console.error('Unable to delete template', error)
+      setNotice(error.response?.data?.detail || 'Template gagal dihapus. Silakan coba lagi.')
+    } finally {
+      setDeletingTemplateId(null)
     }
   }
 
@@ -414,17 +442,32 @@ function App() {
                       <p className="mt-2 text-sm text-slate-600">
                         {template.description || 'Document template ready for form mapping.'}
                       </p>
-                      <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-                        <span>{template.category_name || 'Finance'}</span>
+                      <div className="mt-4 space-y-3 text-xs text-slate-500">
+                        <div className="flex items-center justify-between">
+                          <span>{template.category_name || 'Finance'}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDialog('new-document')
+                              setNotice(`Template "${template.name}" siap digunakan.`)
+                            }}
+                            className="font-medium text-brand-700"
+                          >
+                            Use
+                          </button>
+                        </div>
+                        <p className="flex items-center gap-1.5">
+                          <CalendarDays size={14} />
+                          {formatDate(template.created_at)}
+                        </p>
                         <button
                           type="button"
-                          onClick={() => {
-                            setDialog('new-document')
-                            setNotice(`Template "${template.name}" siap digunakan.`)
-                          }}
-                          className="font-medium text-brand-700"
+                          disabled={deletingTemplateId === template.id}
+                          onClick={() => deleteTemplate(template)}
+                          className="inline-flex items-center gap-1.5 font-medium text-red-700 disabled:opacity-50"
                         >
-                          Use
+                          <Trash2 size={14} />
+                          {deletingTemplateId === template.id ? 'Deleting…' : 'Delete template'}
                         </button>
                       </div>
                     </div>
@@ -516,6 +559,19 @@ function App() {
       )}
     </div>
   )
+}
+
+function formatDate(value) {
+  if (!value) return 'Tanggal tidak tersedia'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Tanggal tidak tersedia'
+
+  return new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(date)
 }
 
 function DocumentTable({ documents, onDownload }) {
