@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 from copy import copy
+from datetime import date
+from math import isfinite
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -66,6 +68,9 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
                     'column': column_index,
                     'cell': worksheet.cell(row_index, column_index).coordinate,
                     'editable': worksheet.cell(row_index + 1, column_index).value in (None, ''),
+                    'input_type': _input_type_for_label(
+                        str(worksheet.cell(row_index, column_index).value)
+                    ),
                 }
                 for column_index in columns
             ]
@@ -119,11 +124,12 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
                     fields.append(
                         {
                             'key': f'field_{cell.coordinate}',
-                            'label': label.strip().rstrip(':'),
+                            'label': label.strip().rstrip(':').strip(),
                             'row': row_index,
                             'column': target_column,
                             'label_cell': cell.coordinate,
                             'input_cell': target_cell.coordinate,
+                            'input_type': _input_type_for_label(label),
                         }
                     )
                     seen_targets.add(target_cell.coordinate)
@@ -156,6 +162,8 @@ def _is_document_input_label(label: str) -> bool:
         'nama karyawan',
         'nama pemohon',
         'employee name',
+        'tgl pengajuan',
+        'tanggal pengajuan',
         'departemen',
         'nama departemen',
         'nama departemen business unit',
@@ -163,6 +171,17 @@ def _is_document_input_label(label: str) -> bool:
         'department',
     }
     return normalized in accepted_labels
+
+
+def _input_type_for_label(label: str) -> str:
+    normalized = re.sub(r'[^a-z0-9]+', ' ', label.casefold()).strip()
+    if normalized.startswith(('tgl ', 'tanggal ', 'date ')):
+        return 'date'
+    if normalized.startswith(
+        ('jumlah', 'nominal', 'harga', 'kuantitas', 'qty', 'quantity')
+    ):
+        return 'number'
+    return 'text'
 
 
 def _merged_right_edge(row: int, column: int, merged_ranges: list[dict]) -> int:
@@ -206,29 +225,36 @@ def generate_spreadsheet(
         if header['editable']
     }
 
-    for field in analysis['fields']:
-        _set_input_value(
-            worksheet.cell(field['row'], field['column']),
-            fields.get(field['key']),
-        )
+    try:
+        for field in analysis['fields']:
+            _set_input_value(
+                worksheet.cell(field['row'], field['column']),
+                fields.get(field['key']),
+                field.get('input_type', 'text'),
+            )
 
-    for item_index, item in enumerate(items):
-        if not isinstance(item, dict):
-            workbook.close()
-            raise ValueError('Format data item tidak valid.')
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError('Format data item tidak valid.')
 
-        row_index = first_item_row + item_index
-        if item_index and prototype_row is not None:
-            _copy_prototype_row(worksheet, prototype_row, row_index)
+            row_index = first_item_row + item_index
+            if item_index and prototype_row is not None:
+                _copy_prototype_row(worksheet, prototype_row, row_index)
 
-        for key, column_index in columns.items():
-            _set_input_value(worksheet.cell(row_index, column_index), item.get(key))
+            for key, column_index in columns.items():
+                header = next(header for header in analysis['headers'] if header['key'] == key)
+                _set_input_value(
+                    worksheet.cell(row_index, column_index),
+                    item.get(key),
+                    header.get('input_type', 'text'),
+                )
 
-    workbook.calculation.fullCalcOnLoad = True
-    workbook.calculation.forceFullCalc = True
-    workbook.calculation.calcMode = 'auto'
-    workbook.save(output_path)
-    workbook.close()
+        workbook.calculation.fullCalcOnLoad = True
+        workbook.calculation.forceFullCalc = True
+        workbook.calculation.calcMode = 'auto'
+        workbook.save(output_path)
+    finally:
+        workbook.close()
 
 
 def _copy_prototype_row(worksheet: Worksheet, source_row: int, target_row: int) -> None:
@@ -249,9 +275,24 @@ def _copy_prototype_row(worksheet: Worksheet, source_row: int, target_row: int) 
                 target.value = source.value
 
 
-def _set_input_value(cell, value) -> None:
-    if value is None:
+def _set_input_value(cell, value, input_type: str = 'text') -> None:
+    if value in (None, ''):
         cell.value = None
+        return
+    if input_type == 'date':
+        try:
+            cell.value = date.fromisoformat(str(value))
+        except ValueError as error:
+            raise ValueError('Tanggal harus valid dan menggunakan format YYYY-MM-DD.') from error
+        return
+    if input_type == 'number':
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Jumlah harus berupa angka yang valid.') from error
+        if not isfinite(number):
+            raise ValueError('Jumlah harus berupa angka yang valid.')
+        cell.value = int(number) if number.is_integer() else number
         return
     cell.value = str(value)
     cell.data_type = 's'

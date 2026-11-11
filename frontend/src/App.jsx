@@ -551,7 +551,7 @@ function App() {
       </div>
 
       {dialog === 'new-document' && (
-        <Modal title="Isi dokumen dari template" onClose={() => setDialog(null)}>
+        <Modal title="Isi dokumen dari template" onClose={() => setDialog(null)} wide>
           <form onSubmit={generateDocument} className="space-y-4">
             <label className="block text-sm font-medium text-slate-700">
               Template Excel
@@ -601,14 +601,14 @@ function App() {
                   </p>
                 ))}
                 {templateAnalysis.fields.length > 0 && (
-                  <section className="space-y-3">
+                  <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <h3 className="font-semibold text-slate-900">Informasi dokumen</h3>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {templateAnalysis.fields.map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
                           {field.label}
                           <input
-                            type="text"
+                            type={field.input_type || 'text'}
                             value={formFields[field.key] || ''}
                             onChange={(event) =>
                               setFormFields((current) => ({
@@ -645,7 +645,7 @@ function App() {
                   {itemRows.map((item, rowIndex) => (
                     <div
                       key={rowIndex}
-                      className="space-y-3 rounded-xl border border-slate-200 p-3"
+                      className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
                     >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-slate-700">Item {rowIndex + 1}</p>
@@ -663,7 +663,7 @@ function App() {
                           </button>
                         )}
                       </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         {templateAnalysis.headers
                           .filter((header) => header.editable)
                           .map((header) => (
@@ -673,7 +673,8 @@ function App() {
                             >
                               {header.label}
                               <input
-                                type="text"
+                                type={header.input_type || 'text'}
+                                step={header.input_type === 'number' ? 'any' : undefined}
                                 value={item[header.key] || ''}
                                 onChange={(event) =>
                                   updateItemValue(rowIndex, header.key, event.target.value)
@@ -803,7 +804,7 @@ function DocumentTable({ documents, onDownload, onDelete, deletingDocumentId }) 
   )
 }
 
-function Modal({ title, onClose, children }) {
+function Modal({ title, onClose, children, wide = false }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
@@ -815,7 +816,9 @@ function Modal({ title, onClose, children }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
+        className={`max-h-[90vh] w-full ${
+          wide ? 'max-w-5xl' : 'max-w-xl'
+        } overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl`}
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 id="modal-title" className="text-xl font-semibold text-slate-900">

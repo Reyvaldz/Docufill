@@ -79,11 +79,14 @@ template formatting and formulas.
 
 For document-level information, use labels such as `Nama Karyawan` and
 `Nama Departemen / Business Unit` above the table, with a blank cell or merged
-input area immediately to the right. Only recognized name and department
-labels are shown as document information; other text such as titles, reference
-numbers, and prefilled values is left untouched. Columns are offered as item
-inputs only when the first row below their header is blank. Use **Tambah item**
-to add rows.
+input area immediately to the right. `Tgl Pengajuan` is also offered as a
+calendar field when its adjacent cell is blank. Only recognized name,
+department, and application-date labels are shown as document information;
+other text such as titles, reference numbers, and prefilled values is left
+untouched. Date columns use a calendar picker, and amount columns use numeric
+inputs so spreadsheet totals can calculate. Columns are offered as item inputs
+only when the first row below their header is blank. Use **Tambah item** to add
+rows.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance
