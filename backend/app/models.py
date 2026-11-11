@@ -25,6 +25,7 @@ class Template(Base):
     status = Column(String(20), default='active')
     version = Column(String(20), default='1.0')
     file_name = Column(String(255), nullable=True)
+    custom_fields = Column(Text, nullable=False, default='[]')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     category = relationship('Category', back_populates='templates')

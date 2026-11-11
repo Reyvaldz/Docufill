@@ -97,11 +97,12 @@ If a template column has an Excel list validation, its form field becomes a
 dropdown populated from that template's list (including lists stored in named
 ranges or another sheet).
 
-If a needed field such as an application date is not detected, use
-**Tambah isian** in the form. Enter its label, the blank cell address on the
-selected sheet (for example `E6`), input type, and value. Custom field mappings
-are saved with the generated workbook and remain available when editing or
-copying it.
+If a needed field such as an application date is not detected, open **Templates**
+and choose **Edit form template**. Add the field's label, blank cell address on
+the selected sheet (for example `E6`), and input type, then save the template.
+These mappings are stored with the template and appear as value inputs whenever
+you create a document from it. Generated workbooks also retain the mappings for
+editing or copying existing documents.
 
 Generated Excel documents can be reopened with **Edit** or started as a
 pre-filled **Copy** from either document list. Editing updates the existing

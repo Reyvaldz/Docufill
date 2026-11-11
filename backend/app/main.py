@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import shutil
 import logging
+import json
 import re
+import tempfile
 import uuid
 from datetime import datetime
 from logging.config import dictConfig
@@ -15,7 +17,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from openpyxl.utils.exceptions import InvalidFileException
-from sqlalchemy import func
+from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
 
 from .config import (
@@ -79,6 +81,12 @@ def get_db():
 @app.on_event('startup')
 def startup_event() -> None:
     Base.metadata.create_all(bind=engine)
+    template_columns = {column['name'] for column in inspect(engine).get_columns('templates')}
+    if 'custom_fields' not in template_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE templates ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'")
+            )
     seed_database(SessionLocal())
 
 
@@ -115,6 +123,7 @@ def list_templates(db: Session = Depends(get_db)) -> list[dict]:
             'status': template.status,
             'version': template.version,
             'file_name': template.file_name,
+            'custom_fields': json.loads(template.custom_fields or '[]'),
             'created_at': template.created_at.isoformat() if template.created_at else None,
         }
         for template in templates
@@ -173,6 +182,51 @@ async def upload_template(
     }
 
 
+@app.patch('/api/templates/{template_id}')
+def update_template_fields(template_id: int, payload: dict, db: Session = Depends(get_db)) -> dict:
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail='Template not found')
+    if not template.file_name or Path(template.file_name).suffix.lower() != '.xlsx':
+        raise HTTPException(status_code=415, detail='Pengaturan form hanya tersedia untuk template .xlsx.')
+
+    custom_fields = payload.get('custom_fields')
+    if not isinstance(custom_fields, list) or len(custom_fields) > 40:
+        raise HTTPException(status_code=422, detail='Daftar informasi tambahan tidak valid (maksimal 40).')
+
+    template_path = (TEMPLATE_DIR / template.file_name).resolve()
+    if not template_path.is_relative_to(TEMPLATE_DIR.resolve()) or not template_path.is_file():
+        raise HTTPException(status_code=404, detail='Template file not found')
+
+    try:
+        analysis = analyze_spreadsheet(template_path)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            validation_path = Path(temp_dir) / 'template-validation.xlsx'
+            generate_spreadsheet(
+                template_path,
+                validation_path,
+                analysis,
+                {},
+                [{}],
+                custom_fields,
+            )
+        normalized_fields = [
+            {
+                'key': str(field.get('key') or f'custom_{index}'),
+                'label': str(field.get('label', '')).strip(),
+                'cell': str(field.get('cell', '')).strip().upper(),
+                'input_type': field.get('input_type', 'text'),
+            }
+            for index, field in enumerate(custom_fields, start=1)
+        ]
+    except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    template.custom_fields = json.dumps(normalized_fields, ensure_ascii=False)
+    db.commit()
+    return {'id': template.id, 'custom_fields': normalized_fields}
+
+
 @app.delete('/api/templates/{template_id}')
 def delete_template(template_id: int, db: Session = Depends(get_db)) -> dict:
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -208,7 +262,9 @@ def analyze_template(template_id: int, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=404, detail='Template file not found')
 
     try:
-        return analyze_spreadsheet(template_path)
+        analysis = analyze_spreadsheet(template_path)
+        analysis['custom_fields'] = json.loads(template.custom_fields or '[]')
+        return analysis
     except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -430,7 +486,20 @@ def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
                 analysis,
                 payload.get('fields', {}),
                 payload.get('items', []),
-                payload.get('custom_fields', []),
+                [
+                    {
+                        **field,
+                        'value': next(
+                            (
+                                submitted.get('value', '')
+                                for submitted in payload.get('custom_fields', [])
+                                if isinstance(submitted, dict) and submitted.get('key') == field['key']
+                            ),
+                            '',
+                        ),
+                    }
+                    for field in json.loads(template_row.custom_fields or '[]')
+                ],
             )
         except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error

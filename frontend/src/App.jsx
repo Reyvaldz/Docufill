@@ -117,6 +117,10 @@ function App() {
   const [formFields, setFormFields] = useState({})
   const [customFields, setCustomFields] = useState([])
   const [itemRows, setItemRows] = useState([{}])
+  const [editingTemplateId, setEditingTemplateId] = useState(null)
+  const [templateFieldAnalysis, setTemplateFieldAnalysis] = useState(null)
+  const [templateAnalysisError, setTemplateAnalysisError] = useState('')
+  const [templateCustomFields, setTemplateCustomFields] = useState([])
 
   const spreadsheetTemplates = templates.filter((template) =>
     template.file_name?.toLowerCase().endsWith('.xlsx'),
@@ -288,6 +292,44 @@ function App() {
     setDialog('new-document')
   }
 
+  const openTemplateFieldEditor = async (template) => {
+    setEditingTemplateId(template.id)
+    setTemplateCustomFields(template.custom_fields || [])
+    setTemplateFieldAnalysis(null)
+    setTemplateAnalysisError('')
+    setDialog('edit-template-fields')
+    try {
+      const { data } = await axios.get(`${API_URL}/templates/${template.id}/analysis`)
+      setTemplateFieldAnalysis(data)
+      setTemplateCustomFields(data.custom_fields || [])
+    } catch (error) {
+      console.error('Unable to load template form settings', error)
+      setTemplateAnalysisError(
+        error.response?.data?.detail || 'Pengaturan form template tidak dapat dimuat.',
+      )
+    }
+  }
+
+  const saveTemplateFields = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await axios.patch(`${API_URL}/templates/${editingTemplateId}`, {
+        custom_fields: templateCustomFields,
+      })
+      await refreshData()
+      setDialog(null)
+      setNotice('Pengaturan form template berhasil disimpan.')
+    } catch (error) {
+      console.error('Unable to save template form settings', error)
+      setTemplateAnalysisError(
+        error.response?.data?.detail || 'Pengaturan form template gagal disimpan.',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (dialog !== 'new-document' || !formTemplateId || documentMode !== 'create') {
       return undefined
@@ -300,7 +342,7 @@ function App() {
         if (!active) return
         setTemplateAnalysis(data)
         setFormFields(Object.fromEntries(data.fields.map((field) => [field.key, ''])))
-        setCustomFields([])
+        setCustomFields((data.custom_fields || []).map((field) => ({ ...field, value: '' })))
         setItemRows([{}])
       })
       .catch((error) => {
@@ -695,6 +737,16 @@ function App() {
                           <CalendarDays size={14} />
                           {formatDate(template.created_at)}
                         </p>
+                        {template.file_name?.toLowerCase().endsWith('.xlsx') && (
+                          <button
+                            type="button"
+                            onClick={() => openTemplateFieldEditor(template)}
+                            className="inline-flex items-center gap-1.5 font-medium text-brand-700"
+                          >
+                            <Pencil size={14} />
+                            Edit form template
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={deletingTemplateId === template.id}
@@ -846,131 +898,39 @@ function App() {
                     </div>
                   </section>
                 )}
-                <section className="space-y-3 rounded-xl border border-slate-200 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                {customFields.length > 0 && (
+                  <section className="space-y-3 rounded-xl border border-slate-200 p-4">
                     <div>
                       <h3 className="font-semibold text-slate-900">Informasi tambahan</h3>
                       <p className="text-xs text-slate-500">
-                        Tambahkan isian yang belum terdeteksi dan tentukan sel kosong di sheet{' '}
-                        {templateAnalysis.sheet_name}.
+                        Isian ini sudah diatur di template. Ubah daftar atau selnya dari halaman
+                        Templates.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      disabled={customFields.length >= 40}
-                      onClick={() =>
-                        setCustomFields((current) => [
-                          ...current,
-                          {
-                            key: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                            label: '',
-                            cell: '',
-                            input_type: 'text',
-                            value: '',
-                          },
-                        ])
-                      }
-                      className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"
-                    >
-                      <Plus size={15} />
-                      Tambah isian
-                    </button>
-                  </div>
-                  {customFields.map((field, index) => (
-                    <div
-                      key={field.key}
-                      className="grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_0.7fr_0.7fr_1fr_auto]"
-                    >
-                      <label className="text-sm font-medium text-slate-700">
-                        Label isian
-                        <input
-                          required
-                          value={field.label}
-                          onChange={(event) =>
-                            setCustomFields((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, label: event.target.value }
-                                  : item,
-                              ),
-                            )
-                          }
-                          placeholder="Contoh: Tanggal pengajuan"
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                        />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        Sel Excel
-                        <input
-                          required
-                          value={field.cell}
-                          onChange={(event) =>
-                            setCustomFields((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, cell: event.target.value.toUpperCase() }
-                                  : item,
-                              ),
-                            )
-                          }
-                          placeholder="Contoh: E6"
-                          maxLength={8}
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                        />
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        Jenis
-                        <select
-                          value={field.input_type}
-                          onChange={(event) =>
-                            setCustomFields((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, input_type: event.target.value }
-                                  : item,
-                              ),
-                            )
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                        >
-                          <option value="text">Teks</option>
-                          <option value="date">Tanggal</option>
-                          <option value="number">Angka</option>
-                        </select>
-                      </label>
-                      <label className="text-sm font-medium text-slate-700">
-                        Nilai
-                        <input
-                          type={field.input_type}
-                          step={field.input_type === 'number' ? 'any' : undefined}
-                          value={field.value}
-                          onChange={(event) =>
-                            setCustomFields((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, value: event.target.value }
-                                  : item,
-                              ),
-                            )
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCustomFields((current) =>
-                            current.filter((_, itemIndex) => itemIndex !== index),
-                          )
-                        }
-                        aria-label={`Hapus ${field.label || 'isian tambahan'}`}
-                        className="self-end rounded-lg px-3 py-2 text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {customFields.map((field, index) => (
+                        <label key={field.key} className="block text-sm font-medium text-slate-700">
+                          {field.label}
+                          <input
+                            type={field.input_type || 'text'}
+                            step={field.input_type === 'number' ? 'any' : undefined}
+                            value={field.value || ''}
+                            onChange={(event) =>
+                              setCustomFields((current) =>
+                                current.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, value: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                          />
+                        </label>
+                      ))}
                     </div>
-                  ))}
-                </section>
+                  </section>
+                )}
                 <section className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-slate-900">Rincian item</h3>
@@ -1116,6 +1076,131 @@ function App() {
               />
             </label>
             <ModalActions onCancel={() => setDialog(null)} saving={saving} submitLabel="Upload" />
+          </form>
+        </Modal>
+      )}
+      {dialog === 'edit-template-fields' && (
+        <Modal title="Edit form template" onClose={() => setDialog(null)} wide>
+          <form onSubmit={saveTemplateFields} className="space-y-4">
+            {templateAnalysisError && (
+              <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {templateAnalysisError}
+              </p>
+            )}
+            {!templateFieldAnalysis && !templateAnalysisError && (
+              <p className="text-sm text-slate-500">Sedang membaca struktur template Excel…</p>
+            )}
+            {templateFieldAnalysis && (
+              <>
+                <p className="text-sm text-slate-600">
+                  Tambahkan field yang kurang untuk sheet{' '}
+                  <strong>{templateFieldAnalysis.sheet_name}</strong>. Isi label, alamat sel kosong,
+                  dan jenis input. Pengaturan ini akan dipakai setiap kali dokumen dibuat dari
+                  template ini.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={templateCustomFields.length >= 40}
+                    onClick={() =>
+                      setTemplateCustomFields((current) => [
+                        ...current,
+                        {
+                          key: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                          label: '',
+                          cell: '',
+                          input_type: 'text',
+                        },
+                      ])
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"
+                  >
+                    <Plus size={15} />
+                    Tambah isian
+                  </button>
+                </div>
+                {templateCustomFields.map((field, index) => (
+                  <div
+                    key={field.key}
+                    className="grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_0.7fr_0.7fr_auto]"
+                  >
+                    <label className="text-sm font-medium text-slate-700">
+                      Label isian
+                      <input
+                        required
+                        value={field.label}
+                        onChange={(event) =>
+                          setTemplateCustomFields((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, label: event.target.value } : item,
+                            ),
+                          )
+                        }
+                        placeholder="Contoh: Tanggal pengajuan"
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-700">
+                      Sel Excel
+                      <input
+                        required
+                        value={field.cell}
+                        onChange={(event) =>
+                          setTemplateCustomFields((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, cell: event.target.value.toUpperCase() }
+                                : item,
+                            ),
+                          )
+                        }
+                        placeholder="Contoh: E6"
+                        maxLength={8}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-700">
+                      Jenis
+                      <select
+                        value={field.input_type || 'text'}
+                        onChange={(event) =>
+                          setTemplateCustomFields((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, input_type: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                      >
+                        <option value="text">Teks</option>
+                        <option value="date">Tanggal</option>
+                        <option value="number">Angka</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTemplateCustomFields((current) =>
+                          current.filter((_, itemIndex) => itemIndex !== index),
+                        )
+                      }
+                      aria-label={`Hapus ${field.label || 'isian tambahan'}`}
+                      className="self-end rounded-lg px-3 py-2 text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+            <ModalActions
+              onCancel={() => setDialog(null)}
+              saving={saving}
+              submitLabel="Simpan form template"
+              disabled={!templateFieldAnalysis}
+            />
           </form>
         </Modal>
       )}
@@ -1328,7 +1413,7 @@ function FormField({ name, label, type = 'text', required = false }) {
   )
 }
 
-function ModalActions({ onCancel, saving, submitLabel }) {
+function ModalActions({ onCancel, saving, submitLabel, disabled = false }) {
   return (
     <div className="flex justify-end gap-3 pt-2">
       <button
@@ -1340,7 +1425,7 @@ function ModalActions({ onCancel, saving, submitLabel }) {
       </button>
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || disabled}
         className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
       >
         {saving ? 'Please wait…' : submitLabel}
