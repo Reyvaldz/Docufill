@@ -12,11 +12,11 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
 
-def analyze_spreadsheet(file_path: Path) -> dict:
+def analyze_spreadsheet(file_path: Path, include_existing_fields: bool = False) -> dict:
     workbook = load_workbook(file_path)
     candidates = []
     for worksheet in workbook.worksheets:
-        analysis = _analyze_worksheet(worksheet)
+        analysis = _analyze_worksheet(worksheet, include_existing_fields)
         if analysis['headers']:
             candidates.append(analysis)
 
@@ -37,7 +37,8 @@ def analyze_spreadsheet(file_path: Path) -> dict:
     return analysis
 
 
-def _analyze_worksheet(worksheet: Worksheet) -> dict:
+def _analyze_worksheet(worksheet: Worksheet, include_existing_fields: bool = False) -> dict:
+    max_column = _last_content_column(worksheet)
     merged_ranges = [
         {
             'bounds': range_boundaries(merged_range.coord),
@@ -50,7 +51,7 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
     for row_index in range(1, worksheet.max_row + 1):
         run = []
         runs = []
-        for column_index in range(1, worksheet.max_column + 1):
+        for column_index in range(1, max_column + 1):
             cell = worksheet.cell(row_index, column_index)
             if isinstance(cell.value, str) and cell.value.strip():
                 run.append(column_index)
@@ -61,19 +62,25 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
         if len(run) >= 2:
             runs.append(run)
         for columns in runs:
-            headers = [
-                {
-                    'key': f'column_{column_index}',
-                    'label': str(worksheet.cell(row_index, column_index).value).strip(),
-                    'column': column_index,
-                    'cell': worksheet.cell(row_index, column_index).coordinate,
-                    'editable': worksheet.cell(row_index + 1, column_index).value in (None, ''),
-                    'input_type': _input_type_for_label(
-                        str(worksheet.cell(row_index, column_index).value)
-                    ),
-                }
-                for column_index in columns
-            ]
+            headers = []
+            for column_index in columns:
+                cell = worksheet.cell(row_index, column_index)
+                label = str(cell.value).strip()
+                input_type = _input_type_for_label(label)
+                prototype = worksheet.cell(row_index + 1, column_index)
+                headers.append(
+                    {
+                        'key': f'column_{column_index}',
+                        'label': label,
+                        'column': column_index,
+                        'cell': cell.coordinate,
+                        'editable': (
+                            input_type != 'sequence'
+                            and prototype.data_type != 'f'
+                        ),
+                        'input_type': input_type,
+                    }
+                )
             header_candidates.append(
                 {
                     'header_row': row_index,
@@ -102,7 +109,7 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
     fields = []
     seen_targets = set()
     for row_index in range(1, header_row):
-        for column_index in range(1, worksheet.max_column + 1):
+        for column_index in range(1, max_column + 1):
             cell = worksheet.cell(row_index, column_index)
             label = cell.value
             if not isinstance(label, str) or not label.strip() or label.startswith('='):
@@ -112,13 +119,13 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
 
             label_right = _merged_right_edge(row_index, column_index, merged_ranges)
             target_column = label_right + 1
-            while target_column <= worksheet.max_column:
+            while target_column <= max_column:
                 target_cell = worksheet.cell(row_index, target_column)
                 target_anchor = _merged_anchor(row_index, target_column, merged_ranges)
                 if target_anchor is not None and target_anchor != target_cell.coordinate:
                     target_column += 1
                     continue
-                if target_cell.value not in (None, ''):
+                if target_cell.value not in (None, '') and not include_existing_fields:
                     break
                 if target_cell.coordinate not in seen_targets:
                     fields.append(
@@ -136,6 +143,8 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
                 break
 
     diagnostics = []
+    footer_row = _find_total_row(worksheet, header_row, max_column)
+    max_items = footer_row - header_row - 1 if footer_row else None
     if not fields:
         diagnostics.append(
             'Tidak ditemukan pasangan label dan sel kosong sebelum tabel. '
@@ -151,6 +160,8 @@ def _analyze_worksheet(worksheet: Worksheet) -> dict:
         'header_row': header_row,
         'headers': header_candidate['headers'],
         'fields': fields,
+        'max_items': max_items,
+        'max_column': max_column,
         'diagnostics': diagnostics,
     }
 
@@ -164,6 +175,8 @@ def _is_document_input_label(label: str) -> bool:
         'employee name',
         'tgl pengajuan',
         'tanggal pengajuan',
+        'tgl dibutuhkan',
+        'tanggal dibutuhkan',
         'departemen',
         'nama departemen',
         'nama departemen business unit',
@@ -175,6 +188,8 @@ def _is_document_input_label(label: str) -> bool:
 
 def _input_type_for_label(label: str) -> str:
     normalized = re.sub(r'[^a-z0-9]+', ' ', label.casefold()).strip()
+    if normalized in {'no', 'nomor', 'no urut', 'nomor urut', 'no item'}:
+        return 'sequence'
     if normalized.startswith(('tgl ', 'tanggal ', 'date ')):
         return 'date'
     if normalized.startswith(
@@ -182,6 +197,66 @@ def _input_type_for_label(label: str) -> str:
     ):
         return 'number'
     return 'text'
+
+
+def _last_content_column(worksheet: Worksheet) -> int:
+    return max(
+        (cell.column for cell in worksheet._cells.values() if cell.value is not None),
+        default=1,
+    )
+
+
+def _find_total_row(worksheet: Worksheet, header_row: int, max_column: int) -> int | None:
+    for row_index in range(header_row + 1, worksheet.max_row + 1):
+        for column_index in range(1, max_column + 1):
+            value = worksheet.cell(row_index, column_index).value
+            if isinstance(value, str) and value.strip().casefold().startswith('total'):
+                return row_index
+    return None
+
+
+def extract_spreadsheet_data(file_path: Path, analysis: dict) -> dict:
+    workbook = load_workbook(file_path, data_only=False)
+    try:
+        if analysis['sheet_name'] not in workbook.sheetnames:
+            raise ValueError('Sheet dokumen tidak ditemukan.')
+        worksheet = workbook[analysis['sheet_name']]
+        fields = {
+            field['key']: _serialize_cell_value(
+                worksheet.cell(field['row'], field['column']).value
+            )
+            for field in analysis['fields']
+        }
+        first_item_row = analysis['header_row'] + 1
+        last_item_row = (
+            first_item_row + analysis['max_items'] - 1
+            if analysis['max_items'] is not None
+            else worksheet.max_row
+        )
+        editable_headers = [
+            header for header in analysis['headers'] if header['editable']
+        ]
+        items = []
+        for row_index in range(first_item_row, last_item_row + 1):
+            item = {
+                header['key']: _serialize_cell_value(
+                    worksheet.cell(row_index, header['column']).value
+                )
+                for header in editable_headers
+            }
+            if any(value not in (None, '') for value in item.values()):
+                items.append(item)
+        return {'fields': fields, 'items': items}
+    finally:
+        workbook.close()
+
+
+def _serialize_cell_value(value):
+    if value is None:
+        return ''
+    if hasattr(value, 'isoformat') and not isinstance(value, str):
+        return value.isoformat()[:10]
+    return str(value)
 
 
 def _merged_right_edge(row: int, column: int, merged_ranges: list[dict]) -> int:
@@ -210,6 +285,10 @@ def generate_spreadsheet(
     if not isinstance(fields, dict) or not isinstance(items, list) or not items:
         raise ValueError('Isi data dasar dan setidaknya satu baris item sebelum membuat dokumen.')
 
+    max_items = analysis.get('max_items')
+    if max_items is not None and len(items) > max_items:
+        raise ValueError(f'Template ini hanya menyediakan ruang untuk {max_items} baris item.')
+
     workbook = load_workbook(template_path)
     if analysis['sheet_name'] not in workbook.sheetnames:
         workbook.close()
@@ -219,6 +298,7 @@ def generate_spreadsheet(
     header_row = analysis['header_row']
     first_item_row = header_row + 1
     prototype_row = first_item_row if first_item_row <= worksheet.max_row else None
+    max_column = analysis.get('max_column', worksheet.max_column)
     columns = {
         header['key']: header['column']
         for header in analysis['headers']
@@ -233,14 +313,25 @@ def generate_spreadsheet(
                 field.get('input_type', 'text'),
             )
 
+        if max_items is not None:
+            for row_index in range(first_item_row, first_item_row + max_items):
+                for header in analysis['headers']:
+                    if header['input_type'] == 'sequence':
+                        worksheet.cell(row_index, header['column']).value = None
+                    elif header['editable']:
+                        worksheet.cell(row_index, header['column']).value = None
+
         for item_index, item in enumerate(items):
             if not isinstance(item, dict):
                 raise ValueError('Format data item tidak valid.')
 
             row_index = first_item_row + item_index
             if item_index and prototype_row is not None:
-                _copy_prototype_row(worksheet, prototype_row, row_index)
+                _copy_prototype_row(worksheet, prototype_row, row_index, max_column)
 
+            for header in analysis['headers']:
+                if header['input_type'] == 'sequence':
+                    worksheet.cell(row_index, header['column']).value = item_index + 1
             for key, column_index in columns.items():
                 header = next(header for header in analysis['headers'] if header['key'] == key)
                 _set_input_value(
@@ -257,9 +348,14 @@ def generate_spreadsheet(
         workbook.close()
 
 
-def _copy_prototype_row(worksheet: Worksheet, source_row: int, target_row: int) -> None:
+def _copy_prototype_row(
+    worksheet: Worksheet,
+    source_row: int,
+    target_row: int,
+    max_column: int,
+) -> None:
     worksheet.row_dimensions[target_row].height = worksheet.row_dimensions[source_row].height
-    for column_index in range(1, worksheet.max_column + 1):
+    for column_index in range(1, max_column + 1):
         source = worksheet.cell(source_row, column_index)
         target = worksheet.cell(target_row, column_index)
         if source.has_style:

@@ -4,10 +4,12 @@ import {
   ArrowUpRight,
   CalendarDays,
   CircleDollarSign,
+  Copy as CopyIcon,
   Download,
   FileText,
   FolderKanban,
   LayoutGrid,
+  Pencil,
   Plus,
   Trash2,
   X,
@@ -48,7 +50,11 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
   const [deletingDocumentId, setDeletingDocumentId] = useState(null)
+  const [openingDocumentId, setOpeningDocumentId] = useState(null)
   const [formTemplateId, setFormTemplateId] = useState('')
+  const [documentMode, setDocumentMode] = useState('create')
+  const [editingDocumentId, setEditingDocumentId] = useState(null)
+  const [documentName, setDocumentName] = useState('')
   const [templateAnalysis, setTemplateAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
   const [formFields, setFormFields] = useState({})
@@ -143,6 +149,9 @@ function App() {
     }
 
     setFormTemplateId(String(template.id))
+    setDocumentMode('create')
+    setEditingDocumentId(null)
+    setDocumentName('')
     setTemplateAnalysis(null)
     setAnalysisError('')
     setFormFields({})
@@ -151,7 +160,9 @@ function App() {
   }
 
   useEffect(() => {
-    if (dialog !== 'new-document' || !formTemplateId) return undefined
+    if (dialog !== 'new-document' || !formTemplateId || documentMode !== 'create') {
+      return undefined
+    }
 
     let active = true
     axios
@@ -173,7 +184,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [dialog, formTemplateId])
+  }, [dialog, formTemplateId, documentMode])
 
   const exportReport = () => {
     const rows = [
@@ -205,7 +216,6 @@ function App() {
       return
     }
 
-    const formData = new FormData(event.currentTarget)
     const items = itemRows.filter((item) =>
       Object.values(item).some((value) => String(value || '').trim()),
     )
@@ -218,8 +228,8 @@ function App() {
       (template) => String(template.id) === formTemplateId,
     )
     const payload = {
-      template_id: Number(formTemplateId),
-      name: formData.get('document_name'),
+      template_id: formTemplateId ? Number(formTemplateId) : undefined,
+      name: documentName,
       category: selectedTemplate?.category_name || '',
       fields: formFields,
       items,
@@ -227,10 +237,22 @@ function App() {
 
     setSaving(true)
     try {
-      await axios.post(`${API_URL}/documents/generate`, payload)
+      if (documentMode === 'edit') {
+        await axios.put(`${API_URL}/documents/${editingDocumentId}`, payload)
+      } else if (documentMode === 'copy') {
+        await axios.post(`${API_URL}/documents/${editingDocumentId}/copy`, payload)
+      } else {
+        await axios.post(`${API_URL}/documents/generate`, payload)
+      }
       await refreshData()
       setDialog(null)
-      setNotice('Dokumen berhasil dibuat. Unduh dari daftar dokumen.')
+      setNotice(
+        documentMode === 'edit'
+          ? 'Dokumen berhasil diperbarui.'
+          : documentMode === 'copy'
+            ? 'Salinan dokumen berhasil dibuat.'
+            : 'Dokumen berhasil dibuat. Unduh dari daftar dokumen.',
+      )
     } catch (error) {
       console.error('Unable to generate document', error)
       setNotice(error.response?.data?.detail || 'Dokumen gagal dibuat. Silakan coba lagi.')
@@ -260,6 +282,29 @@ function App() {
     setItemRows((currentRows) =>
       currentRows.map((row, index) => (index === rowIndex ? { ...row, [key]: value } : row)),
     )
+  }
+
+  const openStoredDocument = async (item, mode) => {
+    setOpeningDocumentId(item.id)
+    try {
+      const { data } = await axios.get(`${API_URL}/documents/${item.id}/form`)
+      setFormTemplateId(data.template_id ? String(data.template_id) : '')
+      setDocumentMode(mode)
+      setEditingDocumentId(item.id)
+      setDocumentName(mode === 'copy' ? `${data.name} - Salinan` : data.name)
+      setTemplateAnalysis({ ...data.analysis, template_name: data.template_name })
+      setAnalysisError('')
+      setFormFields(data.fields)
+      setItemRows(data.items.length ? data.items : [{}])
+      setDialog('new-document')
+    } catch (error) {
+      console.error(`Unable to ${mode} generated document`, error)
+      setNotice(
+        error.response?.data?.detail || 'Data form dokumen tidak dapat dibuka untuk diedit.',
+      )
+    } finally {
+      setOpeningDocumentId(null)
+    }
   }
 
   const deleteTemplate = async (template) => {
@@ -458,7 +503,10 @@ function App() {
                     documents={dashboard.latest_documents || []}
                     onDownload={downloadDocument}
                     onDelete={deleteDocument}
+                    onEdit={(item) => openStoredDocument(item, 'edit')}
+                    onCopy={(item) => openStoredDocument(item, 'copy')}
                     deletingDocumentId={deletingDocumentId}
+                    openingDocumentId={openingDocumentId}
                   />
                 </div>
 
@@ -542,7 +590,10 @@ function App() {
                   documents={documents}
                   onDownload={downloadDocument}
                   onDelete={deleteDocument}
+                  onEdit={(item) => openStoredDocument(item, 'edit')}
+                  onCopy={(item) => openStoredDocument(item, 'copy')}
                   deletingDocumentId={deletingDocumentId}
+                  openingDocumentId={openingDocumentId}
                 />
               </section>
             </>
@@ -551,32 +602,50 @@ function App() {
       </div>
 
       {dialog === 'new-document' && (
-        <Modal title="Isi dokumen dari template" onClose={() => setDialog(null)} wide>
+        <Modal
+          title={
+            documentMode === 'edit'
+              ? 'Edit dokumen'
+              : documentMode === 'copy'
+                ? 'Salin dokumen'
+                : 'Isi dokumen dari template'
+          }
+          onClose={() => setDialog(null)}
+          wide
+        >
           <form onSubmit={generateDocument} className="space-y-4">
-            <label className="block text-sm font-medium text-slate-700">
-              Template Excel
-              <select
-                value={formTemplateId}
-                required
-                onChange={(event) => {
-                  const template = spreadsheetTemplates.find(
-                    (item) => String(item.id) === event.target.value,
-                  )
-                  if (template) openNewDocument(template)
-                }}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              >
-                {spreadsheetTemplates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {documentMode === 'create' ? (
+              <label className="block text-sm font-medium text-slate-700">
+                Template Excel
+                <select
+                  value={formTemplateId}
+                  required
+                  onChange={(event) => {
+                    const template = spreadsheetTemplates.find(
+                      (item) => String(item.id) === event.target.value,
+                    )
+                    if (template) openNewDocument(template)
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                >
+                  {spreadsheetTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="text-sm text-slate-600">
+                Template: <strong>{templateAnalysis?.template_name || 'Dokumen tersimpan'}</strong>
+              </p>
+            )}
             <label className="block text-sm font-medium text-slate-700">
               Nama dokumen hasil
               <input
                 name="document_name"
+                value={documentName}
+                onChange={(event) => setDocumentName(event.target.value)}
                 placeholder="Contoh: Reimbursement November"
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
@@ -628,16 +697,32 @@ function App() {
                     <h3 className="font-semibold text-slate-900">Rincian item</h3>
                     <button
                       type="button"
+                      disabled={
+                        templateAnalysis.max_items != null &&
+                        itemRows.length >= templateAnalysis.max_items
+                      }
                       onClick={() =>
                         setItemRows((current) => [...current, {}])
                       }
-                      className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700"
+                      className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus size={15} />
                       Tambah item
                     </button>
                   </div>
-                  {templateAnalysis.headers.some((header) => !header.editable) && (
+                  {templateAnalysis.max_items != null && (
+                    <p className="text-xs text-slate-500">
+                      Maksimal {templateAnalysis.max_items} baris sesuai ruang pada template.
+                    </p>
+                  )}
+                  {templateAnalysis.headers.some((header) => header.input_type === 'sequence') && (
+                    <p className="text-xs text-slate-500">
+                      Nomor rincian akan diisi otomatis.
+                    </p>
+                  )}
+                  {templateAnalysis.headers.some(
+                    (header) => !header.editable && header.input_type !== 'sequence',
+                  ) && (
                     <p className="text-xs text-slate-500">
                       Kolom dengan rumus pada template akan dihitung otomatis.
                     </p>
@@ -689,7 +774,13 @@ function App() {
                 </section>
               </>
             )}
-            <ModalActions onCancel={() => setDialog(null)} saving={saving} submitLabel="Generate" />
+            <ModalActions
+              onCancel={() => setDialog(null)}
+              saving={saving}
+              submitLabel={
+                documentMode === 'edit' ? 'Simpan perubahan' : documentMode === 'copy' ? 'Buat salinan' : 'Generate'
+              }
+            />
           </form>
         </Modal>
       )}
@@ -745,7 +836,15 @@ function formatDate(value) {
   }).format(date)
 }
 
-function DocumentTable({ documents, onDownload, onDelete, deletingDocumentId }) {
+function DocumentTable({
+  documents,
+  onDownload,
+  onDelete,
+  onEdit,
+  onCopy,
+  deletingDocumentId,
+  openingDocumentId,
+}) {
   if (!documents.length) {
     return <p className="py-6 text-center text-sm text-slate-500">Belum ada dokumen.</p>
   }
@@ -776,7 +875,7 @@ function DocumentTable({ documents, onDownload, onDelete, deletingDocumentId }) 
                 </span>
               </td>
               <td className="py-3">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={() => onDownload(item)}
@@ -785,6 +884,28 @@ function DocumentTable({ documents, onDownload, onDelete, deletingDocumentId }) 
                     <Download size={14} />
                     Download
                   </button>
+                  {item.file_path?.toLowerCase().endsWith('.xlsx') && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={openingDocumentId === item.id}
+                        onClick={() => onEdit(item)}
+                        className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
+                      >
+                        <Pencil size={14} />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={openingDocumentId === item.id}
+                        onClick={() => onCopy(item)}
+                        className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
+                      >
+                        <CopyIcon size={14} />
+                        Copy
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     disabled={deletingDocumentId === item.id}

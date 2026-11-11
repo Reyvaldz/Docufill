@@ -79,14 +79,19 @@ template formatting and formulas.
 
 For document-level information, use labels such as `Nama Karyawan` and
 `Nama Departemen / Business Unit` above the table, with a blank cell or merged
-input area immediately to the right. `Tgl Pengajuan` is also offered as a
-calendar field when its adjacent cell is blank. Only recognized name,
-department, and application-date labels are shown as document information;
-other text such as titles, reference numbers, and prefilled values is left
-untouched. Date columns use a calendar picker, and amount columns use numeric
-inputs so spreadsheet totals can calculate. Columns are offered as item inputs
-only when the first row below their header is blank. Use **Tambah item** to add
-rows.
+input area immediately to the right. `Tgl Pengajuan` and `Tgl Dibutuhkan` are
+offered as calendar fields when their adjacent cells are blank. Only recognized
+name, department, and date labels are shown as document information; other
+text such as titles, reference numbers, and prefilled values is left untouched.
+Date columns use a calendar picker, and amount columns use numeric inputs so
+spreadsheet totals can calculate. Numbering columns such as `No.` are filled
+automatically. Columns are offered as item inputs only when the first row below
+their header is blank. Use **Tambah item** to add rows, up to the number of
+blank rows before the template total row.
+
+Generated Excel documents can be reopened with **Edit** or started as a
+pre-filled **Copy** from either document list. Editing updates the existing
+generated file; copying creates a separate document and file.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance

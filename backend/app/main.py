@@ -28,7 +28,11 @@ from .config import (
 from .database import Base, SessionLocal, engine
 from .models import Category, DocumentRecord, Template
 from .seed import seed_database
-from .spreadsheets import analyze_spreadsheet, generate_spreadsheet
+from .spreadsheets import (
+    analyze_spreadsheet,
+    extract_spreadsheet_data,
+    generate_spreadsheet,
+)
 
 dictConfig(
     {
@@ -265,6 +269,135 @@ def delete_document(document_id: int, db: Session = Depends(get_db)) -> dict:
             ) from error
 
     return {'message': 'Document deleted successfully'}
+
+
+def _spreadsheet_document_source(document: DocumentRecord, db: Session):
+    file_prefix = '/api/files/'
+    if not document.file_path or not document.file_path.startswith(file_prefix):
+        raise HTTPException(status_code=415, detail='Dokumen ini bukan file Excel yang bisa diedit.')
+
+    generated_name = document.file_path.removeprefix(file_prefix)
+    if Path(generated_name).name != generated_name:
+        raise HTTPException(status_code=404, detail='Generated document not found')
+    output_path = (GENERATED_DIR / generated_name).resolve()
+    generated_dir = GENERATED_DIR.resolve()
+    if not output_path.is_relative_to(generated_dir) or not output_path.is_file():
+        raise HTTPException(status_code=404, detail='Generated document not found')
+
+    template = (
+        db.query(Template).filter(Template.id == document.template_id).first()
+        if document.template_id is not None
+        else None
+    )
+    source_path = output_path
+    if template and template.file_name:
+        candidate = (TEMPLATE_DIR / template.file_name).resolve()
+        if candidate.is_relative_to(TEMPLATE_DIR.resolve()) and candidate.is_file():
+            source_path = candidate
+
+    analysis = analyze_spreadsheet(
+        source_path,
+        include_existing_fields=source_path == output_path,
+    )
+    data = extract_spreadsheet_data(output_path, analysis)
+    return template, source_path, output_path, analysis, data
+
+
+def _write_spreadsheet_document(
+    source_path: Path,
+    output_path: Path,
+    analysis: dict,
+    payload: dict,
+) -> None:
+    temporary_path = output_path.with_name(f'.{uuid.uuid4().hex}.tmp.xlsx')
+    try:
+        generate_spreadsheet(
+            source_path,
+            temporary_path,
+            analysis,
+            payload.get('fields', {}),
+            payload.get('items', []),
+        )
+        temporary_path.replace(output_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
+@app.get('/api/documents/{document_id}/form')
+def get_document_form(document_id: int, db: Session = Depends(get_db)) -> dict:
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail='Document not found')
+    try:
+        template, _, _, analysis, data = _spreadsheet_document_source(document, db)
+    except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {
+        'id': document.id,
+        'name': document.name,
+        'template_id': document.template_id,
+        'template_name': template.name if template else document.template_name,
+        'analysis': analysis,
+        **data,
+    }
+
+
+@app.put('/api/documents/{document_id}')
+def update_document(document_id: int, payload: dict, db: Session = Depends(get_db)) -> dict:
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail='Document not found')
+    try:
+        _, source_path, output_path, analysis, _ = _spreadsheet_document_source(document, db)
+        _write_spreadsheet_document(source_path, output_path, analysis, payload)
+    except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    document.name = str(payload.get('name') or document.name)
+    db.commit()
+    return {
+        'id': document.id,
+        'name': document.name,
+        'file_path': document.file_path,
+        'message': 'Document updated successfully.',
+    }
+
+
+@app.post('/api/documents/{document_id}/copy')
+def copy_document(document_id: int, payload: dict, db: Session = Depends(get_db)) -> dict:
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail='Document not found')
+    try:
+        template, source_path, _, analysis, _ = _spreadsheet_document_source(document, db)
+        name = str(payload.get('name') or f'{document.name} - Salinan')
+        file_stem = re.sub(r'[^a-zA-Z0-9_-]+', '-', name).strip('-').lower()
+        generated_name = f'{file_stem or "document"}-{uuid.uuid4().hex[:8]}.xlsx'
+        output_path = GENERATED_DIR / generated_name
+        _write_spreadsheet_document(source_path, output_path, analysis, payload)
+    except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    copied_document = DocumentRecord(
+        name=name,
+        category=document.category,
+        template_name=template.name if template else document.template_name,
+        template_version=template.version if template else document.template_version,
+        created_by=document.created_by,
+        status='generated',
+        file_path=f'/api/files/{generated_name}',
+        template_id=template.id if template else None,
+    )
+    db.add(copied_document)
+    db.commit()
+    db.refresh(copied_document)
+    return {
+        'id': copied_document.id,
+        'name': copied_document.name,
+        'file_path': copied_document.file_path,
+        'message': 'Document copied successfully.',
+    }
 
 
 @app.post('/api/documents/generate')
