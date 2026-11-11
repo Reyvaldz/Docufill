@@ -86,5 +86,9 @@ removed with the Delete template button or `DELETE /api/templates/{template_id}`
 Removing a template keeps previously generated documents; its stored DOCX file
 is removed when no other template references it.
 
+Documents in both the recent history and All documents list can be removed with
+the Delete button or `DELETE /api/documents/{document_id}`. Their generated DOCX
+file is removed only when no other document record references it.
+
 Generated documents and uploaded files belong under `DATA_DIR`; that directory
 is ignored by Git and should be mounted to persistent storage in deployments.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import logging
 from datetime import datetime
 from logging.config import dictConfig
 
@@ -47,6 +48,7 @@ dictConfig(
 )
 
 app = FastAPI(title='DocuFill API', version='1.0.0')
+logger = logging.getLogger(__name__)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -196,6 +198,45 @@ def list_documents(db: Session = Depends(get_db)) -> list[dict]:
         }
         for document in documents
     ]
+
+
+@app.delete('/api/documents/{document_id}')
+def delete_document(document_id: int, db: Session = Depends(get_db)) -> dict:
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail='Document not found')
+
+    file_path = None
+    file_prefix = '/api/files/'
+    if document.file_path and document.file_path.startswith(file_prefix):
+        file_name = document.file_path.removeprefix(file_prefix)
+        candidate = (GENERATED_DIR / file_name).resolve()
+        generated_dir = GENERATED_DIR.resolve()
+        file_is_referenced = (
+            db.query(DocumentRecord)
+            .filter(
+                DocumentRecord.file_path == document.file_path,
+                DocumentRecord.id != document.id,
+            )
+            .first()
+        )
+        if not file_is_referenced and candidate.is_relative_to(generated_dir):
+            file_path = candidate
+
+    db.delete(document)
+    db.commit()
+
+    if file_path and file_path.is_file():
+        try:
+            file_path.unlink()
+        except OSError as error:
+            logger.exception('Could not remove generated file %s', file_path)
+            raise HTTPException(
+                status_code=500,
+                detail='Document was deleted, but its generated file could not be removed.',
+            ) from error
+
+    return {'message': 'Document deleted successfully'}
 
 
 @app.post('/api/documents/generate')

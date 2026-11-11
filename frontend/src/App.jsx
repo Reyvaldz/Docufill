@@ -54,6 +54,7 @@ function App() {
   const [notice, setNotice] = useState('')
   const [saving, setSaving] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
+  const [deletingDocumentId, setDeletingDocumentId] = useState(null)
 
   const refreshData = async () => {
     const [dashboardResponse, templatesResponse, documentsResponse, categoriesResponse] =
@@ -227,6 +228,32 @@ function App() {
     }
   }
 
+  const deleteDocument = async (item) => {
+    const confirmed = window.confirm(`Hapus dokumen "${item.name}"?`)
+    if (!confirmed) return
+
+    setDeletingDocumentId(item.id)
+    try {
+      await axios.delete(`${API_URL}/documents/${item.id}`)
+      setDocuments((currentDocuments) =>
+        currentDocuments.filter((document) => document.id !== item.id),
+      )
+      setDashboard((currentDashboard) => ({
+        ...currentDashboard,
+        total_documents: Math.max(0, currentDashboard.total_documents - 1),
+        latest_documents: currentDashboard.latest_documents.filter(
+          (document) => document.id !== item.id,
+        ),
+      }))
+      setNotice(`Dokumen "${item.name}" berhasil dihapus.`)
+    } catch (error) {
+      console.error('Unable to delete document', error)
+      setNotice(error.response?.data?.detail || 'Dokumen gagal dihapus. Silakan coba lagi.')
+    } finally {
+      setDeletingDocumentId(null)
+    }
+  }
+
   const downloadDocument = (item) => {
     const fileName = item.file_path?.match(/^\/api\/files\/(.+)$/)?.[1]
     if (!fileName) {
@@ -377,7 +404,12 @@ function App() {
                     </button>
                   </div>
 
-                  <DocumentTable documents={dashboard.latest_documents || []} onDownload={downloadDocument} />
+                  <DocumentTable
+                    documents={dashboard.latest_documents || []}
+                    onDownload={downloadDocument}
+                    onDelete={deleteDocument}
+                    deletingDocumentId={deletingDocumentId}
+                  />
                 </div>
 
                 <div id="workflow" className="space-y-6 scroll-mt-8">
@@ -477,7 +509,12 @@ function App() {
 
               <section id="documents-list" className="mt-8 scroll-mt-8 card">
                 <h3 className="mb-4 text-xl font-semibold text-slate-900">All documents</h3>
-                <DocumentTable documents={documents} onDownload={downloadDocument} />
+                <DocumentTable
+                  documents={documents}
+                  onDownload={downloadDocument}
+                  onDelete={deleteDocument}
+                  deletingDocumentId={deletingDocumentId}
+                />
               </section>
             </>
           )}
@@ -574,7 +611,7 @@ function formatDate(value) {
   }).format(date)
 }
 
-function DocumentTable({ documents, onDownload }) {
+function DocumentTable({ documents, onDownload, onDelete, deletingDocumentId }) {
   if (!documents.length) {
     return <p className="py-6 text-center text-sm text-slate-500">Belum ada dokumen.</p>
   }
@@ -588,7 +625,7 @@ function DocumentTable({ documents, onDownload }) {
             <th className="pb-3 pr-4 font-medium">Category</th>
             <th className="pb-3 pr-4 font-medium">Template</th>
             <th className="pb-3 pr-4 font-medium">Status</th>
-            <th className="pb-3 font-medium">Action</th>
+            <th className="pb-3 font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -605,14 +642,25 @@ function DocumentTable({ documents, onDownload }) {
                 </span>
               </td>
               <td className="py-3">
-                <button
-                  type="button"
-                  onClick={() => onDownload(item)}
-                  className="inline-flex items-center gap-2 text-brand-700"
-                >
-                  <Download size={14} />
-                  Download
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onDownload(item)}
+                    className="inline-flex items-center gap-2 text-brand-700"
+                  >
+                    <Download size={14} />
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingDocumentId === item.id}
+                    onClick={() => onDelete(item)}
+                    className="inline-flex items-center gap-1.5 text-red-700 disabled:opacity-50"
+                  >
+                    <Trash2 size={14} />
+                    {deletingDocumentId === item.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
