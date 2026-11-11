@@ -446,6 +446,16 @@ function App() {
                     New document
                   </button>
                 )}
+                {activeSection === 'templates' && (
+                  <button
+                    type="button"
+                    onClick={() => setDialog('upload-template')}
+                    className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-brand-600/20 hover:bg-brand-700"
+                  >
+                    <Plus size={16} />
+                    New template
+                  </button>
+                )}
               </div>
             </div>
             <nav
@@ -515,13 +525,6 @@ function App() {
                       Unggah .xlsx untuk membaca kolom otomatis dan membuat form dokumen.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDialog('upload-template')}
-                    className="text-sm font-medium text-brand-700"
-                  >
-                    New template
-                  </button>
                 </div>
 
                 {!templates.length && (
