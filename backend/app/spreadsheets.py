@@ -5,76 +5,163 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 from openpyxl.formula.translate import Translator
+from openpyxl.utils.cell import range_boundaries
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 def analyze_spreadsheet(file_path: Path) -> dict:
     workbook = load_workbook(file_path)
-    worksheet = workbook.active
-    merged_cells = {
-        cell.coordinate
-        for merged_range in worksheet.merged_cells.ranges
-        for row in worksheet[merged_range.coord]
-        for cell in row
-    }
+    candidates = []
+    for worksheet in workbook.worksheets:
+        analysis = _analyze_worksheet(worksheet)
+        if analysis['headers']:
+            candidates.append(analysis)
 
-    header_row = None
-    headers = []
+    if not candidates:
+        workbook.close()
+        raise ValueError(
+            'Tidak ditemukan tabel dengan sedikitnya dua judul kolom berurutan pada file Excel.'
+        )
+
+    analysis = max(
+        candidates,
+        key=lambda item: (
+            len(item['fields']) * 100 + len(item['headers']),
+            item['sheet_name'] == workbook.active.title,
+        ),
+    )
+    workbook.close()
+    return analysis
+
+
+def _analyze_worksheet(worksheet: Worksheet) -> dict:
+    merged_ranges = [
+        {
+            'bounds': range_boundaries(merged_range.coord),
+            'anchor': merged_range.start_cell.coordinate,
+        }
+        for merged_range in worksheet.merged_cells.ranges
+    ]
+
+    header_candidates = []
     for row_index in range(1, worksheet.max_row + 1):
-        populated = [
-            column_index
-            for column_index in range(1, worksheet.max_column + 1)
-            if worksheet.cell(row_index, column_index).value not in (None, '')
-        ]
-        if any(right == left + 1 for left, right in zip(populated, populated[1:])):
-            header_row = row_index
+        run = []
+        runs = []
+        for column_index in range(1, worksheet.max_column + 1):
+            cell = worksheet.cell(row_index, column_index)
+            if isinstance(cell.value, str) and cell.value.strip():
+                run.append(column_index)
+            else:
+                if len(run) >= 2:
+                    runs.append(run)
+                run = []
+        if len(run) >= 2:
+            runs.append(run)
+        for columns in runs:
             headers = [
                 {
                     'key': f'column_{column_index}',
                     'label': str(worksheet.cell(row_index, column_index).value).strip(),
                     'column': column_index,
+                    'cell': worksheet.cell(row_index, column_index).coordinate,
                     'editable': (
                         worksheet.cell(row_index + 1, column_index).data_type != 'f'
                     ),
                 }
-                for column_index in populated
+                for column_index in columns
             ]
-            break
+            header_candidates.append(
+                {
+                    'header_row': row_index,
+                    'headers': headers,
+                }
+            )
 
-    if header_row is None:
-        workbook.close()
-        raise ValueError('Tidak ditemukan baris header dengan setidaknya dua judul kolom berdampingan.')
+    header_candidate = max(
+        header_candidates,
+        key=lambda candidate: (
+            len(candidate['headers']),
+            candidate['header_row'],
+        ),
+        default=None,
+    )
+    if not header_candidate:
+        return {
+            'sheet_name': worksheet.title,
+            'header_row': None,
+            'headers': [],
+            'fields': [],
+            'diagnostics': [],
+        }
 
+    header_row = header_candidate['header_row']
     fields = []
+    seen_targets = set()
     for row_index in range(1, header_row):
         for column_index in range(1, worksheet.max_column + 1):
             cell = worksheet.cell(row_index, column_index)
             label = cell.value
-            target = worksheet.cell(row_index, column_index + 1)
-            if (
-                isinstance(label, str)
-                and label.strip()
-                and not label.startswith('=')
-                and cell.coordinate not in merged_cells
-                and target.coordinate not in merged_cells
-                and target.value in (None, '')
-            ):
-                fields.append(
-                    {
-                        'key': f'field_{cell.coordinate}',
-                        'label': label.strip().rstrip(':'),
-                        'row': row_index,
-                        'column': column_index + 1,
-                    }
-                )
+            if not isinstance(label, str) or not label.strip() or label.startswith('='):
+                continue
 
-    result = {
+            label_right = _merged_right_edge(row_index, column_index, merged_ranges)
+            target_column = label_right + 1
+            while target_column <= worksheet.max_column:
+                target_cell = worksheet.cell(row_index, target_column)
+                target_anchor = _merged_anchor(row_index, target_column, merged_ranges)
+                if target_anchor is not None and target_anchor != target_cell.coordinate:
+                    target_column += 1
+                    continue
+                if target_cell.value not in (None, ''):
+                    break
+                if target_cell.coordinate not in seen_targets:
+                    fields.append(
+                        {
+                            'key': f'field_{cell.coordinate}',
+                            'label': label.strip().rstrip(':'),
+                            'row': row_index,
+                            'column': target_column,
+                            'label_cell': cell.coordinate,
+                            'input_cell': target_cell.coordinate,
+                        }
+                    )
+                    seen_targets.add(target_cell.coordinate)
+                break
+
+    diagnostics = []
+    if not fields:
+        diagnostics.append(
+            'Tidak ditemukan pasangan label dan sel kosong sebelum tabel. '
+            'Pastikan label informasi berada di atas tabel dan area isian kosong berada tepat di sebelah kanannya.'
+        )
+    if not any(header['editable'] for header in header_candidate['headers']):
+        diagnostics.append(
+            'Semua kolom pada baris contoh berisi rumus. Pastikan baris item kosong pertama ada tepat di bawah header.'
+        )
+
+    return {
         'sheet_name': worksheet.title,
         'header_row': header_row,
-        'headers': headers,
+        'headers': header_candidate['headers'],
         'fields': fields,
+        'diagnostics': diagnostics,
     }
-    workbook.close()
-    return result
+
+
+def _merged_right_edge(row: int, column: int, merged_ranges: list[dict]) -> int:
+    for merged_range in merged_ranges:
+        min_col, min_row, max_col, max_row = merged_range['bounds']
+        if min_row <= row <= max_row and min_col <= column <= max_col:
+            return max_col
+    return column
+
+
+def _merged_anchor(row: int, column: int, merged_ranges: list[dict]) -> str | None:
+    for merged_range in merged_ranges:
+        min_col, min_row, max_col, max_row = merged_range['bounds']
+        if min_row <= row <= max_row and min_col <= column <= max_col:
+            return merged_range['anchor']
+    return None
 
 
 def generate_spreadsheet(
@@ -120,11 +207,14 @@ def generate_spreadsheet(
         for key, column_index in columns.items():
             _set_input_value(worksheet.cell(row_index, column_index), item.get(key))
 
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    workbook.calculation.calcMode = 'auto'
     workbook.save(output_path)
     workbook.close()
 
 
-def _copy_prototype_row(worksheet, source_row: int, target_row: int) -> None:
+def _copy_prototype_row(worksheet: Worksheet, source_row: int, target_row: int) -> None:
     worksheet.row_dimensions[target_row].height = worksheet.row_dimensions[source_row].height
     for column_index in range(1, worksheet.max_column + 1):
         source = worksheet.cell(source_row, column_index)

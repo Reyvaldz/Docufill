@@ -77,10 +77,10 @@ become repeatable item rows. The app copies the original workbook and fills
 these rows, preserving the template formatting and formulas.
 
 To collect document-level information, put labels above the table with an
-empty cell immediately to the right, for example `Nama` in A1 and `Departemen`
-in C1, leaving B1 and D1 empty. The form shows these labels, and writes answers
-into the cells beside them. Item quantities, prices, and other values are
-entered as text fields; use **Tambah item** to add rows.
+empty cell or merged input area immediately to the right, for example `Nama`
+in A1 and `Departemen` in C1. The form shows the detected input cell addresses
+before you fill it in. Item quantities, prices, and other values are entered as
+text fields; use **Tambah item** to add rows.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance

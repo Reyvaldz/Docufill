@@ -591,9 +591,23 @@ function App() {
                   Sheet <strong>{templateAnalysis.sheet_name}</strong>. Isi informasi dasar dan
                   tambahkan baris item sesuai kebutuhan.
                 </p>
+                {templateAnalysis.diagnostics.map((diagnostic) => (
+                  <p
+                    key={diagnostic}
+                    role="status"
+                    className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                  >
+                    {diagnostic}
+                  </p>
+                ))}
                 {templateAnalysis.fields.length > 0 && (
                   <section className="space-y-3">
                     <h3 className="font-semibold text-slate-900">Informasi dokumen</h3>
+                    <p className="text-xs text-slate-500">
+                      Sel kosong yang terdeteksi: {templateAnalysis.fields
+                        .map((field) => `${field.label} (${field.input_cell})`)
+                        .join(', ')}
+                    </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {templateAnalysis.fields.map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
@@ -655,22 +669,24 @@ function App() {
                         )}
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
-                        {templateAnalysis.headers.filter((header) => header.editable).map((header) => (
-                          <label
-                            key={header.key}
-                            className="block text-sm font-medium text-slate-700"
-                          >
-                            {header.label}
-                            <input
-                              type="text"
-                              value={item[header.key] || ''}
-                              onChange={(event) =>
-                                updateItemValue(rowIndex, header.key, event.target.value)
-                              }
-                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                            />
-                          </label>
-                        ))}
+                        {templateAnalysis.headers
+                          .filter((header) => header.editable)
+                          .map((header) => (
+                            <label
+                              key={header.key}
+                              className="block text-sm font-medium text-slate-700"
+                            >
+                              {header.label}
+                              <input
+                                type="text"
+                                value={item[header.key] || ''}
+                                onChange={(event) =>
+                                  updateItemValue(rowIndex, header.key, event.target.value)
+                                }
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                              />
+                            </label>
+                          ))}
                       </div>
                     </div>
                   ))}
