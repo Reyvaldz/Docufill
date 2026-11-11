@@ -5,6 +5,9 @@ SQLite storage, and a React + Vite frontend. Upload an Excel template, review
 the fields detected in it, fill in the form, and download a generated copy.
 The interface keeps Dashboard, Templates, recent Documents, and All Documents
 on separate pages accessible from the navigation menu.
+Choose **Wallpaper** to select a built-in background or upload a JPG, PNG, or
+WebP image. The choice is saved locally in the current browser and is not
+uploaded to the backend or shared across devices.
 
 ## Configuration
 

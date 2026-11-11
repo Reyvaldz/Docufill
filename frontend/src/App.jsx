@@ -9,6 +9,7 @@ import {
   FileText,
   Files,
   FolderKanban,
+  Image,
   LayoutGrid,
   Pencil,
   Plus,
@@ -47,6 +48,51 @@ const pageTitles = {
   'all-documents': 'All Documents',
 }
 
+const WALLPAPER_STORAGE_KEY = 'docufill.wallpaper'
+const wallpaperPresets = [
+  { id: 'plain', label: 'Polos', background: '#f1f5f9' },
+  {
+    id: 'ocean',
+    label: 'Biru laut',
+    background: 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 48%, #ccfbf1 100%)',
+  },
+  {
+    id: 'lavender',
+    label: 'Lavender',
+    background: 'linear-gradient(135deg, #ede9fe 0%, #f5f3ff 52%, #dbeafe 100%)',
+  },
+  {
+    id: 'sunset',
+    label: 'Senja',
+    background: 'linear-gradient(135deg, #ffedd5 0%, #fff7ed 50%, #fce7f3 100%)',
+  },
+  {
+    id: 'forest',
+    label: 'Hutan',
+    background: 'linear-gradient(135deg, #dcfce7 0%, #f0fdf4 50%, #ccfbf1 100%)',
+  },
+]
+
+function loadSavedWallpaper() {
+  try {
+    const saved = localStorage.getItem(WALLPAPER_STORAGE_KEY)
+    if (!saved) return { type: 'preset', value: 'plain' }
+
+    const wallpaper = JSON.parse(saved)
+    const knownPreset = wallpaperPresets.some((preset) => preset.id === wallpaper.value)
+    if (wallpaper.type === 'preset' && knownPreset) {
+      return wallpaper
+    }
+    if (wallpaper.type === 'image' && wallpaper.value?.startsWith('data:image/jpeg;base64,')) {
+      return wallpaper
+    }
+    return { type: 'preset', value: 'plain' }
+  } catch (error) {
+    console.error('Unable to load saved wallpaper', error)
+    return { type: 'preset', value: 'plain' }
+  }
+}
+
 function App() {
   const [dashboard, setDashboard] = useState(defaultDashboard)
   const [templates, setTemplates] = useState([])
@@ -56,6 +102,8 @@ function App() {
   const [activeSection, setActiveSection] = useState('dashboard')
   const [dialog, setDialog] = useState(null)
   const [notice, setNotice] = useState('')
+  const [wallpaper, setWallpaper] = useState(loadSavedWallpaper)
+  const [wallpaperBusy, setWallpaperBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
   const [deletingDocumentId, setDeletingDocumentId] = useState(null)
@@ -150,6 +198,76 @@ function App() {
     setActiveSection(item.target)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const saveWallpaper = (nextWallpaper) => {
+    try {
+      localStorage.setItem(WALLPAPER_STORAGE_KEY, JSON.stringify(nextWallpaper))
+      setWallpaper(nextWallpaper)
+      setDialog(null)
+      setNotice('Wallpaper berhasil diperbarui di browser ini.')
+    } catch (error) {
+      console.error('Unable to save wallpaper preference', error)
+      setNotice('Wallpaper tidak dapat disimpan. Coba gambar yang lebih kecil atau pilihan lain.')
+    }
+  }
+
+  const uploadWallpaper = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setNotice('Pilih gambar JPG, PNG, atau WebP.')
+      return
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      setNotice('Ukuran gambar wallpaper maksimal 12 MB.')
+      return
+    }
+
+    setWallpaperBusy(true)
+    let bitmap
+    try {
+      bitmap = await createImageBitmap(file)
+      const scale = Math.min(1, 1920 / bitmap.width, 1200 / bitmap.height)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Browser tidak dapat memproses gambar wallpaper.')
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+
+      let value = canvas.toDataURL('image/jpeg', 0.78)
+      if (value.length > 3_500_000) {
+        value = canvas.toDataURL('image/jpeg', 0.62)
+      }
+      if (value.length > 3_500_000) {
+        throw new Error('Gambar masih terlalu besar setelah dikompres. Pilih gambar yang lebih kecil.')
+      }
+      saveWallpaper({ type: 'image', value })
+    } catch (error) {
+      console.error('Unable to process wallpaper image', error)
+      setNotice(error.message || 'Gambar wallpaper tidak dapat diproses.')
+    } finally {
+      bitmap?.close()
+      setWallpaperBusy(false)
+    }
+  }
+
+  const activeWallpaper =
+    wallpaper.type === 'image'
+      ? {
+          backgroundColor: '#e2e8f0',
+          backgroundImage: `linear-gradient(rgba(248, 250, 252, 0.76), rgba(248, 250, 252, 0.76)), url("${wallpaper.value}")`,
+          backgroundPosition: 'center',
+          backgroundSize: 'cover',
+          backgroundAttachment: 'fixed',
+        }
+      : {
+          background:
+            wallpaperPresets.find((preset) => preset.id === wallpaper.value)?.background ||
+            wallpaperPresets[0].background,
+          backgroundAttachment: 'fixed',
+        }
 
   const openNewDocument = (template = spreadsheetTemplates[0]) => {
     if (!template) {
@@ -382,7 +500,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
+    <div className="min-h-screen text-slate-800" style={activeWallpaper}>
       <div className="flex min-h-screen">
         <aside className="hidden w-72 flex-col justify-between bg-slate-950 p-6 text-slate-100 lg:flex">
           <div>
@@ -432,6 +550,14 @@ function App() {
               </div>
 
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDialog('wallpaper')}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
+                >
+                  <Image size={16} />
+                  Wallpaper
+                </button>
                 {['documents', 'all-documents'].includes(activeSection) && (
                   <button
                     type="button"
@@ -970,6 +1096,65 @@ function App() {
             </label>
             <ModalActions onCancel={() => setDialog(null)} saving={saving} submitLabel="Upload" />
           </form>
+        </Modal>
+      )}
+      {dialog === 'wallpaper' && (
+        <Modal title="Ubah wallpaper" onClose={() => setDialog(null)}>
+          <div className="space-y-5">
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-800">Pilihan wallpaper</h3>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {wallpaperPresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => saveWallpaper({ type: 'preset', value: preset.id })}
+                    aria-pressed={wallpaper.type === 'preset' && wallpaper.value === preset.id}
+                    className={`overflow-hidden rounded-xl border-2 text-left transition ${
+                      wallpaper.type === 'preset' && wallpaper.value === preset.id
+                        ? 'border-brand-600 ring-2 ring-brand-100'
+                        : 'border-slate-200 hover:border-slate-400'
+                    }`}
+                  >
+                    <span
+                      className="block h-20"
+                      style={{ background: preset.background }}
+                    />
+                    <span className="block px-3 py-2 text-sm font-medium text-slate-700">
+                      {preset.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="space-y-2 border-t border-slate-200 pt-4">
+              <h3 className="text-sm font-semibold text-slate-800">Gambar sendiri</h3>
+              <p className="text-xs text-slate-500">
+                Pilih JPG, PNG, atau WebP hingga 12 MB. Gambar diproses di browser dan disimpan hanya di browser ini.
+              </p>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={wallpaperBusy}
+                onChange={uploadWallpaper}
+                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-60"
+              />
+              {wallpaperBusy && (
+                <p role="status" className="text-sm text-slate-500">
+                  Memproses wallpaper…
+                </p>
+              )}
+            </section>
+            {wallpaper.type === 'image' && (
+              <button
+                type="button"
+                onClick={() => saveWallpaper({ type: 'preset', value: 'plain' })}
+                className="text-sm font-medium text-red-700"
+              >
+                Hapus gambar dan kembali ke wallpaper polos
+              </button>
+            )}
+          </div>
         </Modal>
       )}
     </div>
