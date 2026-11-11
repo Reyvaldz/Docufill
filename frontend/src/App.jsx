@@ -1093,11 +1093,121 @@ function App() {
             {templateFieldAnalysis && (
               <>
                 <p className="text-sm text-slate-600">
-                  Tambahkan field yang kurang untuk sheet{' '}
-                  <strong>{templateFieldAnalysis.sheet_name}</strong>. Isi label, alamat sel kosong,
-                  dan jenis input. Pengaturan ini akan dipakai setiap kali dokumen dibuat dari
-                  template ini.
+                  Cocokkan pratinjau form dengan sheet{' '}
+                  <strong>{templateFieldAnalysis.sheet_name}</strong>. Kalau ada bagian yang
+                  belum terwakili, tambahkan field di pengaturan template di bawah. Dokumen yang
+                  dibuat nanti akan memakai susunan ini.
                 </p>
+                <section className="space-y-4 rounded-xl border border-brand-200 bg-brand-50/50 p-4">
+                  <div>
+                    <h3 className="font-semibold text-slate-900">Pratinjau form dokumen</h3>
+                    <p className="text-xs text-slate-600">
+                      Periksa apakah informasi dan rincian ini sudah cocok dengan isi Excel.
+                      Pratinjau hanya contoh, tidak menyimpan data.
+                    </p>
+                  </div>
+                  {(templateFieldAnalysis.fields.length > 0 ||
+                    templateCustomFields.length > 0) && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {templateFieldAnalysis.fields.map((field) => (
+                        <label
+                          key={field.key}
+                          className="block text-sm font-medium text-slate-700"
+                        >
+                          {field.label}
+                          <input
+                            type={field.input_type || 'text'}
+                            disabled
+                            placeholder={`Contoh isian (${field.input_cell})`}
+                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                          />
+                          <span className="mt-1 block text-xs font-normal text-slate-500">
+                            Terdeteksi dari sel {field.input_cell}
+                          </span>
+                        </label>
+                      ))}
+                      {templateCustomFields.map((field) => (
+                        <label
+                          key={field.key}
+                          className="block text-sm font-medium text-slate-700"
+                        >
+                          {field.label || 'Field tambahan'}
+                          <input
+                            type={field.input_type || 'text'}
+                            disabled
+                            placeholder={
+                              field.cell
+                                ? `Contoh isian (${field.cell})`
+                                : 'Tentukan sel Excel di pengaturan'
+                            }
+                            className="mt-1 w-full rounded-lg border border-brand-300 bg-white px-3 py-2 disabled:opacity-100"
+                          />
+                          <span className="mt-1 block text-xs font-normal text-slate-500">
+                            Field tambahan{field.cell ? ` untuk sel ${field.cell}` : ''}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {templateFieldAnalysis.headers.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold text-slate-800">Rincian item</h4>
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {templateFieldAnalysis.headers.map((header) => (
+                          <label
+                            key={header.key}
+                            className="block text-sm font-medium text-slate-700"
+                          >
+                            {header.label}
+                            {header.editable && header.options?.length ? (
+                              <select
+                                disabled
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                              >
+                                <option>
+                                  {header.options[0] || `Contoh (${header.cell})`}
+                                </option>
+                              </select>
+                            ) : (
+                              <input
+                                type={header.editable ? header.input_type || 'text' : 'text'}
+                                disabled
+                                placeholder={
+                                  header.input_type === 'sequence'
+                                    ? 'Nomor otomatis'
+                                    : header.editable
+                                      ? `Contoh isian (${header.cell})`
+                                      : 'Otomatis dari template'
+                                }
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                              />
+                            )}
+                            <span className="mt-1 block text-xs font-normal text-slate-500">
+                              Kolom Excel {header.cell}
+                              {!header.editable && header.input_type !== 'sequence'
+                                ? ' · otomatis'
+                                : ''}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {templateFieldAnalysis.fields.length === 0 &&
+                    templateCustomFields.length === 0 &&
+                    templateFieldAnalysis.headers.length === 0 && (
+                      <p className="text-sm text-amber-800">
+                        Belum ada field yang terdeteksi. Periksa format sheet Excel.
+                      </p>
+                    )}
+                </section>
+                <div>
+                  <h3 className="font-semibold text-slate-900">Field tambahan template</h3>
+                  <p className="text-xs text-slate-500">
+                    Tambahkan bagian yang belum terwakili. Pilih sel kosong pada sheet Excel,
+                    lalu field ini akan tersedia otomatis saat mengisi dokumen.
+                  </p>
+                </div>
                 <div className="flex justify-end">
                   <button
                     type="button"
