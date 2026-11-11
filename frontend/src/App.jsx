@@ -67,6 +67,7 @@ function App() {
   const [templateAnalysis, setTemplateAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
   const [formFields, setFormFields] = useState({})
+  const [customFields, setCustomFields] = useState([])
   const [itemRows, setItemRows] = useState([{}])
 
   const spreadsheetTemplates = templates.filter((template) =>
@@ -164,6 +165,7 @@ function App() {
     setTemplateAnalysis(null)
     setAnalysisError('')
     setFormFields({})
+    setCustomFields([])
     setItemRows([{}])
     setDialog('new-document')
   }
@@ -180,6 +182,7 @@ function App() {
         if (!active) return
         setTemplateAnalysis(data)
         setFormFields(Object.fromEntries(data.fields.map((field) => [field.key, ''])))
+        setCustomFields([])
         setItemRows([{}])
       })
       .catch((error) => {
@@ -241,6 +244,7 @@ function App() {
       name: documentName,
       category: selectedTemplate?.category_name || '',
       fields: formFields,
+      custom_fields: customFields,
       items,
     }
 
@@ -304,6 +308,7 @@ function App() {
       setTemplateAnalysis({ ...data.analysis, template_name: data.template_name })
       setAnalysisError('')
       setFormFields(data.fields)
+      setCustomFields(data.custom_fields || [])
       setItemRows(data.items.length ? data.items : [{}])
       setDialog('new-document')
     } catch (error) {
@@ -715,6 +720,131 @@ function App() {
                     </div>
                   </section>
                 )}
+                <section className="space-y-3 rounded-xl border border-slate-200 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">Informasi tambahan</h3>
+                      <p className="text-xs text-slate-500">
+                        Tambahkan isian yang belum terdeteksi dan tentukan sel kosong di sheet{' '}
+                        {templateAnalysis.sheet_name}.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={customFields.length >= 40}
+                      onClick={() =>
+                        setCustomFields((current) => [
+                          ...current,
+                          {
+                            key: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                            label: '',
+                            cell: '',
+                            input_type: 'text',
+                            value: '',
+                          },
+                        ])
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 disabled:opacity-50"
+                    >
+                      <Plus size={15} />
+                      Tambah isian
+                    </button>
+                  </div>
+                  {customFields.map((field, index) => (
+                    <div
+                      key={field.key}
+                      className="grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_0.7fr_0.7fr_1fr_auto]"
+                    >
+                      <label className="text-sm font-medium text-slate-700">
+                        Label isian
+                        <input
+                          required
+                          value={field.label}
+                          onChange={(event) =>
+                            setCustomFields((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, label: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                          placeholder="Contoh: Tanggal pengajuan"
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm font-medium text-slate-700">
+                        Sel Excel
+                        <input
+                          required
+                          value={field.cell}
+                          onChange={(event) =>
+                            setCustomFields((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, cell: event.target.value.toUpperCase() }
+                                  : item,
+                              ),
+                            )
+                          }
+                          placeholder="Contoh: E6"
+                          maxLength={8}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm font-medium text-slate-700">
+                        Jenis
+                        <select
+                          value={field.input_type}
+                          onChange={(event) =>
+                            setCustomFields((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, input_type: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                          <option value="text">Teks</option>
+                          <option value="date">Tanggal</option>
+                          <option value="number">Angka</option>
+                        </select>
+                      </label>
+                      <label className="text-sm font-medium text-slate-700">
+                        Nilai
+                        <input
+                          type={field.input_type}
+                          step={field.input_type === 'number' ? 'any' : undefined}
+                          value={field.value}
+                          onChange={(event) =>
+                            setCustomFields((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, value: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCustomFields((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                        }
+                        aria-label={`Hapus ${field.label || 'isian tambahan'}`}
+                        className="self-end rounded-lg px-3 py-2 text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </section>
                 <section className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-slate-900">Rincian item</h3>

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 from openpyxl.formula.translate import Translator
-from openpyxl.utils.cell import range_boundaries
+from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -246,7 +246,25 @@ def extract_spreadsheet_data(file_path: Path, analysis: dict) -> dict:
             }
             if any(value not in (None, '') for value in item.values()):
                 items.append(item)
-        return {'fields': fields, 'items': items}
+        custom_fields = []
+        if '_DocuFill' in workbook.sheetnames:
+            metadata = workbook['_DocuFill']
+            for row_index in range(2, metadata.max_row + 1):
+                key, label, cell, input_type = (
+                    metadata.cell(row_index, column).value for column in range(1, 5)
+                )
+                if not all(isinstance(value, str) and value for value in (key, label, cell)):
+                    continue
+                custom_fields.append(
+                    {
+                        'key': key,
+                        'label': label,
+                        'cell': cell,
+                        'input_type': input_type or 'text',
+                        'value': _serialize_cell_value(worksheet[cell].value),
+                    }
+                )
+        return {'fields': fields, 'items': items, 'custom_fields': custom_fields}
     finally:
         workbook.close()
 
@@ -281,6 +299,7 @@ def generate_spreadsheet(
     analysis: dict,
     fields: dict,
     items: list[dict],
+    custom_fields: list[dict] | None = None,
 ) -> None:
     if not isinstance(fields, dict) or not isinstance(items, list) or not items:
         raise ValueError('Isi data dasar dan setidaknya satu baris item sebelum membuat dokumen.')
@@ -288,6 +307,11 @@ def generate_spreadsheet(
     max_items = analysis.get('max_items')
     if max_items is not None and len(items) > max_items:
         raise ValueError(f'Template ini hanya menyediakan ruang untuk {max_items} baris item.')
+
+    if custom_fields is None:
+        custom_fields = []
+    if not isinstance(custom_fields, list):
+        raise ValueError('Format informasi tambahan tidak valid.')
 
     workbook = load_workbook(template_path)
     if analysis['sheet_name'] not in workbook.sheetnames:
@@ -306,12 +330,82 @@ def generate_spreadsheet(
     }
 
     try:
+        existing_custom_fields = _read_custom_field_metadata(workbook)
+        allowed_existing_cells = {field['cell'] for field in existing_custom_fields}
+        occupied_cells = {
+            field['input_cell'] for field in analysis['fields']
+        } | {
+            worksheet.cell(header_row, header['column']).coordinate
+            for header in analysis['headers']
+        }
+        occupied_cells.update(
+            worksheet.cell(row_index, header['column']).coordinate
+            for row_index in range(first_item_row, first_item_row + (max_items or len(items)))
+            for header in analysis['headers']
+        )
+        seen_custom_cells = set()
+        seen_custom_keys = set()
+        normalized_custom_fields = []
+        if len(custom_fields) > 40:
+            raise ValueError('Maksimal 40 informasi tambahan dapat ditambahkan.')
+
         for field in analysis['fields']:
             _set_input_value(
                 worksheet.cell(field['row'], field['column']),
                 fields.get(field['key']),
                 field.get('input_type', 'text'),
             )
+
+        for field in existing_custom_fields:
+            worksheet[field['cell']].value = None
+
+        for index, field in enumerate(custom_fields, start=1):
+            if not isinstance(field, dict):
+                raise ValueError('Format informasi tambahan tidak valid.')
+            label = str(field.get('label', '')).strip()
+            cell_reference = str(field.get('cell', '')).strip().upper()
+            input_type = field.get('input_type', 'text')
+            key = str(field.get('key') or f'custom_{index}')
+            if not label:
+                raise ValueError('Label informasi tambahan wajib diisi.')
+            if not key or key in seen_custom_keys:
+                raise ValueError('Kunci informasi tambahan tidak valid atau duplikat.')
+            if input_type not in {'text', 'date', 'number'}:
+                raise ValueError(f'Tipe input tidak valid untuk field {label}.')
+            if not re.fullmatch(r'[A-Z]{1,3}[1-9][0-9]*', cell_reference):
+                raise ValueError(f'Alamat sel tidak valid untuk field {label}.')
+            try:
+                target_row, target_column = coordinate_to_tuple(cell_reference)
+            except ValueError as error:
+                raise ValueError(f'Alamat sel tidak valid untuk field {label}.') from error
+            if target_row > 1_048_576 or target_column > 16_384:
+                raise ValueError(f'Alamat sel {cell_reference} berada di luar batas Excel.')
+            target_cell = worksheet.cell(target_row, target_column)
+            if target_cell.coordinate in seen_custom_cells:
+                raise ValueError(f'Alamat sel {cell_reference} dipakai lebih dari satu field.')
+            if target_cell.coordinate in occupied_cells:
+                raise ValueError(f'Sel {cell_reference} berbenturan dengan bagian template lain.')
+            if target_cell.value not in (None, '') and target_cell.coordinate not in allowed_existing_cells:
+                raise ValueError(
+                    f'Sel {cell_reference} sudah berisi data. Pilih sel kosong pada template.'
+                )
+            for merged_range in worksheet.merged_cells.ranges:
+                if target_cell.coordinate in merged_range and target_cell.coordinate != merged_range.start_cell.coordinate:
+                    raise ValueError(
+                        f'Gunakan sel awal area gabungan {merged_range.start_cell.coordinate} untuk field {label}.'
+                    )
+
+            _set_input_value(target_cell, field.get('value'), input_type)
+            normalized_custom_fields.append(
+                {
+                    'key': key,
+                    'label': label,
+                    'cell': target_cell.coordinate,
+                    'input_type': input_type,
+                }
+            )
+            seen_custom_cells.add(target_cell.coordinate)
+            seen_custom_keys.add(key)
 
         if max_items is not None:
             for row_index in range(first_item_row, first_item_row + max_items):
@@ -343,9 +437,31 @@ def generate_spreadsheet(
         workbook.calculation.fullCalcOnLoad = True
         workbook.calculation.forceFullCalc = True
         workbook.calculation.calcMode = 'auto'
+        if '_DocuFill' in workbook.sheetnames:
+            del workbook['_DocuFill']
+        if normalized_custom_fields:
+            metadata = workbook.create_sheet('_DocuFill')
+            metadata.sheet_state = 'hidden'
+            metadata.append(['key', 'label', 'cell', 'input_type'])
+            for field in normalized_custom_fields:
+                metadata.append(
+                    [field['key'], field['label'], field['cell'], field['input_type']]
+                )
         workbook.save(output_path)
     finally:
         workbook.close()
+
+
+def _read_custom_field_metadata(workbook) -> list[dict]:
+    if '_DocuFill' not in workbook.sheetnames:
+        return []
+    metadata = workbook['_DocuFill']
+    return [
+        {'key': metadata.cell(row_index, 1).value, 'cell': metadata.cell(row_index, 3).value}
+        for row_index in range(2, metadata.max_row + 1)
+        if isinstance(metadata.cell(row_index, 1).value, str)
+        and isinstance(metadata.cell(row_index, 3).value, str)
+    ]
 
 
 def _copy_prototype_row(

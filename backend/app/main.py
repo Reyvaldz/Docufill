@@ -317,6 +317,7 @@ def _write_spreadsheet_document(
             analysis,
             payload.get('fields', {}),
             payload.get('items', []),
+            payload.get('custom_fields', []),
         )
         temporary_path.replace(output_path)
     finally:
@@ -429,6 +430,7 @@ def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
                 analysis,
                 payload.get('fields', {}),
                 payload.get('items', []),
+                payload.get('custom_fields', []),
             )
         except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
