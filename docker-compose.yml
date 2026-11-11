@@ -1,24 +1,46 @@
-version: '3.9'
-
 services:
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
+    restart: unless-stopped
     environment:
-      - PYTHONUNBUFFERED=1
+      DATA_DIR: "${DATA_DIR:-/data}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-10}"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - "docufill-data:${DATA_DIR:-/data}"
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "${VITE_API_URL:-/api}"
+    restart: unless-stopped
     ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8000/api
+      - "${APP_PORT:-8080}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  docufill-data:

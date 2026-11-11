@@ -24,12 +24,25 @@ at `GET /health` and `GET /api/health`, both returning `{"status":"ok"}`.
 
 ## Container deployment
 
-Set `DATA_DIR` to the container's persistent data mount, and pass
-`CORS_ORIGINS` and `MAX_UPLOAD_MB` to the backend. Configure the reverse proxy
-to route `/api` to the backend when using the frontend's default API URL. Set
-`VITE_API_URL` to a browser-accessible API URL when the frontend is built
-without that proxy; Vite embeds this value into production assets. The
-`/health` endpoint can be used as the container health check.
+Copy `.env.example` to `.env`, then run:
+
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose logs -f
+```
+
+Open `http://localhost:8080` (or the port set by `APP_PORT`). The included
+Nginx server serves the production frontend and proxies `/api` and `/health` to
+the backend. The backend is not published directly to the host. A named Docker
+named Docker volume persists the SQLite database, uploaded templates, and
+generated files at `DATA_DIR` inside the backend container (default `/data`).
+Compose waits for the backend health check before starting the frontend. Set
+`CORS_ORIGINS` and `MAX_UPLOAD_MB` in `.env` to override backend defaults; keep
+`VITE_API_URL=/api` when using this reverse proxy.
+
+To shut down while retaining data, run `docker compose down`. `docker compose
+down -v` also removes the database and generated files.
 
 ## Local development
 
