@@ -93,6 +93,50 @@ function loadSavedWallpaper() {
   }
 }
 
+function getSubmissionFieldType(label = '') {
+  const normalized = label.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (['nama', 'nama karyawan', 'nama pemohon', 'employee name'].includes(normalized)) {
+    return 'applicantName'
+  }
+  if (
+    [
+      'tujuan',
+      'tujuan pengajuan',
+      'keperluan',
+      'keperluan pengajuan',
+      'purpose',
+      'application purpose',
+    ].includes(normalized)
+  ) {
+    return 'purpose'
+  }
+  if (['tgl pengajuan', 'tanggal pengajuan'].includes(normalized)) {
+    return 'applicationDate'
+  }
+  return null
+}
+
+function getTodayDateInput() {
+  const today = new Date()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${today.getFullYear()}-${month}-${day}`
+}
+
+function buildSubmissionName({ purpose, applicantName, applicationDate }) {
+  const safePart = (value) =>
+    String(value || '')
+      .split('')
+      .filter((character) => character.charCodeAt(0) >= 32)
+      .join('')
+      .replace(/[<>:"/\\|?*]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^[. ]+|[. ]+$/g, '')
+  const date = applicationDate ? applicationDate.split('-').reverse().join('') : ''
+  return `Pengajuan ${safePart(purpose) || '[tujuan]'} - ${safePart(applicantName) || '[nama]'} ${date || '[tanggalbulantahun]'}`
+}
+
 function App() {
   const [dashboard, setDashboard] = useState(defaultDashboard)
   const [templates, setTemplates] = useState([])
@@ -112,6 +156,12 @@ function App() {
   const [documentMode, setDocumentMode] = useState('create')
   const [editingDocumentId, setEditingDocumentId] = useState(null)
   const [documentName, setDocumentName] = useState('')
+  const [purpose, setPurpose] = useState('')
+  const [applicantName, setApplicantName] = useState('')
+  const [applicationDate, setApplicationDate] = useState(getTodayDateInput)
+  const [folderName, setFolderName] = useState('')
+  const [outputLocation, setOutputLocation] = useState(null)
+  const [evidencePhotos, setEvidencePhotos] = useState([])
   const [templateAnalysis, setTemplateAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
   const [formFields, setFormFields] = useState({})
@@ -125,6 +175,33 @@ function App() {
   const spreadsheetTemplates = templates.filter((template) =>
     template.file_name?.toLowerCase().endsWith('.xlsx'),
   )
+  const submissionFields = {
+    purpose:
+      templateAnalysis?.fields.find((field) => getSubmissionFieldType(field.label) === 'purpose') ||
+      customFields.find((field) => getSubmissionFieldType(field.label) === 'purpose'),
+    applicantName:
+      templateAnalysis?.fields.find(
+        (field) => getSubmissionFieldType(field.label) === 'applicantName',
+      ) || customFields.find((field) => getSubmissionFieldType(field.label) === 'applicantName'),
+    applicationDate:
+      templateAnalysis?.fields.find(
+        (field) => getSubmissionFieldType(field.label) === 'applicationDate',
+      ) || customFields.find((field) => getSubmissionFieldType(field.label) === 'applicationDate'),
+  }
+  const getCurrentSubmissionValue = (kind) => {
+    const mappedField = submissionFields[kind]
+    if (!mappedField) {
+      return {
+        purpose,
+        applicantName,
+        applicationDate,
+      }[kind]
+    }
+    if (templateAnalysis?.fields.some((field) => field.key === mappedField.key)) {
+      return formFields[mappedField.key] || ''
+    }
+    return customFields.find((field) => field.key === mappedField.key)?.value || ''
+  }
 
   const refreshData = async () => {
     const [dashboardResponse, templatesResponse, documentsResponse, categoriesResponse] =
@@ -257,6 +334,23 @@ function App() {
     }
   }
 
+  const selectOutputLocation = async () => {
+    if (!window.showDirectoryPicker) {
+      setNotice('Pemilihan folder lokal didukung browser Chrome atau Edge pada koneksi aman.')
+      return
+    }
+
+    try {
+      const directory = await window.showDirectoryPicker({ mode: 'readwrite' })
+      setOutputLocation(directory)
+      setNotice(`Lokasi penyimpanan dipilih: ${directory.name}`)
+    } catch (error) {
+      if (error.name === 'AbortError') return
+      console.error('Unable to select local output folder', error)
+      setNotice(error.message || 'Lokasi penyimpanan tidak dapat dipilih.')
+    }
+  }
+
   const activeWallpaper =
     wallpaper.type === 'image'
       ? {
@@ -284,6 +378,11 @@ function App() {
     setDocumentMode('create')
     setEditingDocumentId(null)
     setDocumentName('')
+    setPurpose('')
+    setApplicantName('')
+    setApplicationDate(getTodayDateInput())
+    setFolderName('')
+    setEvidencePhotos([])
     setTemplateAnalysis(null)
     setAnalysisError('')
     setFormFields({})
@@ -341,8 +440,23 @@ function App() {
       .then(({ data }) => {
         if (!active) return
         setTemplateAnalysis(data)
-        setFormFields(Object.fromEntries(data.fields.map((field) => [field.key, ''])))
-        setCustomFields((data.custom_fields || []).map((field) => ({ ...field, value: '' })))
+        setFormFields(
+          Object.fromEntries(
+            data.fields.map((field) => [
+              field.key,
+              getSubmissionFieldType(field.label) === 'applicationDate' ? getTodayDateInput() : '',
+            ]),
+          ),
+        )
+        setCustomFields(
+          (data.custom_fields || []).map((field) => ({
+            ...field,
+            value:
+              getSubmissionFieldType(field.label) === 'applicationDate'
+                ? getTodayDateInput()
+                : '',
+          })),
+        )
         setItemRows([{}])
       })
       .catch((error) => {
@@ -388,6 +502,47 @@ function App() {
       return
     }
 
+    let submissionData
+    let outputName = documentName
+    if (documentMode === 'create') {
+      const trimmedFolderName = folderName.trim()
+      const reservedFolderName =
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmedFolderName)
+      if (!trimmedFolderName || !outputLocation) {
+        setNotice('Isi nama folder dan pilih lokasi penyimpanannya terlebih dahulu.')
+        return
+      }
+      if (
+        /[/\\<>:"|?*]/.test(trimmedFolderName) ||
+        Array.from(trimmedFolderName).some((character) => character.charCodeAt(0) < 32) ||
+        /[. ]$/.test(trimmedFolderName) ||
+        reservedFolderName ||
+        ['.', '..'].includes(trimmedFolderName)
+      ) {
+        setNotice('Nama folder berisi karakter yang tidak diizinkan.')
+        return
+      }
+      if (evidencePhotos.some((photo) => !photo.type.startsWith('image/'))) {
+        setNotice('Semua lampiran harus berupa file foto atau gambar.')
+        return
+      }
+
+      submissionData = {
+        purpose: String(getCurrentSubmissionValue('purpose') || '').trim(),
+        applicantName: String(getCurrentSubmissionValue('applicantName') || '').trim(),
+        applicationDate: String(getCurrentSubmissionValue('applicationDate') || '').trim(),
+      }
+      if (
+        !submissionData.purpose ||
+        !submissionData.applicantName ||
+        !submissionData.applicationDate
+      ) {
+        setNotice('Isi tujuan pengajuan, nama pemohon, dan tanggal pengajuan terlebih dahulu.')
+        return
+      }
+      outputName = buildSubmissionName(submissionData)
+    }
+
     const items = itemRows.filter((item) =>
       Object.values(item).some((value) => String(value || '').trim()),
     )
@@ -401,30 +556,125 @@ function App() {
     )
     const payload = {
       template_id: formTemplateId ? Number(formTemplateId) : undefined,
-      name: documentName,
+      name: outputName,
       category: selectedTemplate?.category_name || '',
       fields: formFields,
       custom_fields: customFields,
       items,
     }
+    if (submissionData) {
+      payload.purpose = submissionData.purpose
+      payload.applicant_name = submissionData.applicantName
+      payload.application_date = submissionData.applicationDate
+      for (const [key, value] of Object.entries(submissionData)) {
+        const mappedField = submissionFields[key]
+        if (!mappedField) continue
+        if (templateAnalysis.fields.some((field) => field.key === mappedField.key)) {
+          payload.fields[mappedField.key] = value
+        } else {
+          payload.custom_fields = payload.custom_fields.map((field) =>
+            field.key === mappedField.key ? { ...field, value } : field,
+          )
+        }
+      }
+    }
+
+    if (documentMode === 'create') {
+      try {
+        let existingFolder
+        try {
+          existingFolder = await outputLocation.getDirectoryHandle(folderName.trim())
+        } catch (error) {
+          if (error.name !== 'NotFoundError') throw error
+        }
+        if (existingFolder) {
+          try {
+            await existingFolder.getFileHandle(`${outputName}.xlsx`)
+            if (!window.confirm(`File "${outputName}.xlsx" sudah ada. Timpa file tersebut?`)) {
+              return
+            }
+          } catch (error) {
+            if (error.name !== 'NotFoundError') throw error
+          }
+        }
+      } catch (error) {
+        console.error('Unable to check the selected output folder', error)
+        setNotice(error.message || 'Folder penyimpanan tidak dapat diperiksa.')
+        return
+      }
+    }
 
     setSaving(true)
     try {
+      let generatedDocument
       if (documentMode === 'edit') {
-        await axios.put(`${API_URL}/documents/${editingDocumentId}`, payload)
+        generatedDocument = await axios.put(
+          `${API_URL}/documents/${editingDocumentId}`,
+          payload,
+        )
       } else if (documentMode === 'copy') {
-        await axios.post(`${API_URL}/documents/${editingDocumentId}/copy`, payload)
+        generatedDocument = await axios.post(
+          `${API_URL}/documents/${editingDocumentId}/copy`,
+          payload,
+        )
       } else {
-        await axios.post(`${API_URL}/documents/generate`, payload)
+        generatedDocument = await axios.post(`${API_URL}/documents/generate`, payload)
+      }
+
+      let folderSaveError = ''
+      if (documentMode === 'create') {
+        try {
+          const fileName = generatedDocument.data.file_path?.split('/').pop()
+          if (!fileName) throw new Error('Lokasi file Excel hasil tidak tersedia.')
+          const { data: workbook } = await axios.get(
+            `${API_URL}/files/${encodeURIComponent(fileName)}`,
+            { responseType: 'blob' },
+          )
+          const outputFolder = await outputLocation.getDirectoryHandle(folderName.trim(), {
+            create: true,
+          })
+          const workbookHandle = await outputFolder.getFileHandle(`${outputName}.xlsx`, {
+            create: true,
+          })
+          const workbookWriter = await workbookHandle.createWritable()
+          await workbookWriter.write(workbook)
+          await workbookWriter.close()
+
+          const writtenNames = new Set([`${outputName}.xlsx`])
+          for await (const [existingName] of outputFolder.entries()) {
+            writtenNames.add(existingName.toLowerCase())
+          }
+          for (const photo of evidencePhotos) {
+            const extensionIndex = photo.name.lastIndexOf('.')
+            const baseName =
+              extensionIndex > 0 ? photo.name.slice(0, extensionIndex) : photo.name
+            const extension = extensionIndex > 0 ? photo.name.slice(extensionIndex) : ''
+            let photoName = photo.name
+            let suffix = 2
+            while (writtenNames.has(photoName.toLowerCase())) {
+              photoName = `${baseName} (${suffix})${extension}`
+              suffix += 1
+            }
+            writtenNames.add(photoName.toLowerCase())
+            const photoHandle = await outputFolder.getFileHandle(photoName, { create: true })
+            const photoWriter = await photoHandle.createWritable()
+            await photoWriter.write(photo)
+            await photoWriter.close()
+          }
+        } catch (error) {
+          console.error('Unable to save generated folder on this device', error)
+          folderSaveError = error.message || 'folder lokal tidak dapat disimpan.'
+        }
       }
       await refreshData()
       setDialog(null)
-      setNotice(
-        documentMode === 'edit'
+      setNotice(folderSaveError
+        ? `Dokumen sudah dibuat di DocuFill, tetapi folder lokal gagal disimpan: ${folderSaveError}`
+        : documentMode === 'edit'
           ? 'Dokumen berhasil diperbarui.'
           : documentMode === 'copy'
             ? 'Salinan dokumen berhasil dibuat.'
-            : 'Dokumen berhasil dibuat. Unduh dari daftar dokumen.',
+            : `Folder "${folderName.trim()}" beserta Excel dan foto berhasil disimpan.`,
       )
     } catch (error) {
       console.error('Unable to generate document', error)
@@ -846,16 +1096,99 @@ function App() {
                 Template: <strong>{templateAnalysis?.template_name || 'Dokumen tersimpan'}</strong>
               </p>
             )}
-            <label className="block text-sm font-medium text-slate-700">
-              Nama dokumen hasil
-              <input
-                name="document_name"
-                value={documentName}
-                onChange={(event) => setDocumentName(event.target.value)}
-                placeholder="Contoh: Reimbursement November"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
+            {documentMode !== 'create' && (
+              <label className="block text-sm font-medium text-slate-700">
+                Nama dokumen hasil
+                <input
+                  name="document_name"
+                  value={documentName}
+                  onChange={(event) => setDocumentName(event.target.value)}
+                  placeholder="Contoh: Reimbursement November"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+            )}
+            {documentMode === 'create' && (
+              <section className="space-y-4 rounded-xl border border-brand-200 bg-brand-50/50 p-4">
+                <div>
+                  <h3 className="font-semibold text-slate-900">Folder pengajuan</h3>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Pilih folder induk di perangkat ini. DocuFill akan membuat folder baru di
+                    dalamnya, lalu menyimpan Excel dan foto bukti di sana.
+                  </p>
+                </div>
+                {Object.entries({
+                  purpose: ['Tujuan pengajuan', purpose, setPurpose],
+                  applicantName: ['Nama pemohon', applicantName, setApplicantName],
+                  applicationDate: ['Tanggal pengajuan', applicationDate, setApplicationDate],
+                })
+                  .filter(([kind]) => !submissionFields[kind])
+                  .map(([kind, [label, value, setValue]]) => (
+                    <label
+                      key={kind}
+                      className="block text-sm font-medium text-slate-700"
+                    >
+                      {label}
+                      <input
+                        type={kind === 'applicationDate' ? 'date' : 'text'}
+                        required
+                        value={value}
+                        onChange={(event) => setValue(event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                  ))}
+                <label className="block text-sm font-medium text-slate-700">
+                  Nama folder
+                  <input
+                    required
+                    value={folderName}
+                    onChange={(event) => setFolderName(event.target.value)}
+                    placeholder="Contoh: Pengajuan Reyval November"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={selectOutputLocation}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                  >
+                    Pilih lokasi penyimpanan
+                  </button>
+                  <span className="text-sm text-slate-600">
+                    {outputLocation?.name || 'Belum ada lokasi dipilih'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Pemilihan folder lokal memerlukan Chrome atau Edge pada koneksi aman.
+                </p>
+                <label className="block text-sm font-medium text-slate-700">
+                  Foto bukti (opsional)
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) =>
+                      setEvidencePhotos(Array.from(event.target.files || []))
+                    }
+                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                  />
+                  <span className="mt-1 block text-xs font-normal text-slate-500">
+                    {evidencePhotos.length
+                      ? `${evidencePhotos.length} foto dipilih`
+                      : 'Foto akan disimpan bersama file Excel di folder pengajuan.'}
+                  </span>
+                </label>
+                <p className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700">
+                  Nama Excel: <strong>{buildSubmissionName({
+                    purpose: getCurrentSubmissionValue('purpose'),
+                    applicantName: getCurrentSubmissionValue('applicantName'),
+                    applicationDate: getCurrentSubmissionValue('applicationDate'),
+                  })}.xlsx</strong>
+                </p>
+              </section>
+            )}
             {analysisError && <p role="alert" className="text-sm text-red-700">{analysisError}</p>}
             {!templateAnalysis && !analysisError && (
               <p className="text-sm text-slate-500">Sedang membaca struktur template Excel…</p>
@@ -884,6 +1217,10 @@ function App() {
                           {field.label}
                           <input
                             type={field.input_type || 'text'}
+                            required={
+                              documentMode === 'create' &&
+                              Boolean(getSubmissionFieldType(field.label))
+                            }
                             value={formFields[field.key] || ''}
                             onChange={(event) =>
                               setFormFields((current) => ({
@@ -914,6 +1251,10 @@ function App() {
                           <input
                             type={field.input_type || 'text'}
                             step={field.input_type === 'number' ? 'any' : undefined}
+                            required={
+                              documentMode === 'create' &&
+                              Boolean(getSubmissionFieldType(field.label))
+                            }
                             value={field.value || ''}
                             onChange={(event) =>
                               setCustomFields((current) =>

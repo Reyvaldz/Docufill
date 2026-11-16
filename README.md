@@ -86,8 +86,9 @@ For document-level information, use labels such as `Nama Karyawan` and
 `Nama Departemen / Business Unit` above the table, with a blank cell or merged
 input area immediately to the right. `Tgl Pengajuan` and `Tgl Dibutuhkan` are
 offered as calendar fields when their adjacent cells are blank. Only recognized
-name, department, and date labels are shown as document information; other
-text such as titles, reference numbers, and prefilled values is left untouched.
+name, purpose, department, and date labels are shown as document information;
+other text such as titles, reference numbers, and prefilled values is left
+untouched.
 Date columns use a calendar picker, and amount columns use numeric inputs so
 spreadsheet totals can calculate. Numbering columns such as `No.` are filled
 automatically. Columns are offered as item inputs only when the first row below
@@ -110,6 +111,14 @@ copying existing documents.
 Generated Excel documents can be reopened with **Edit** or started as a
 pre-filled **Copy** from either document list. Editing updates the existing
 generated file; copying creates a separate document and file.
+
+When creating a new Excel document in the browser, enter a folder name, choose
+a parent location on the device, and optionally select evidence photos. DocuFill
+creates that folder with the Excel file and photos inside it. The Excel filename
+uses `Pengajuan (tujuan) - (nama) (DDMMYYYY).xlsx`, for example
+`Pengajuan Reimbursement - Reyval Danendra 06112026.xlsx`. Selecting a local
+folder requires Chrome or Edge on a secure connection (localhost is supported);
+the generated document remains available in DocuFill as well.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance

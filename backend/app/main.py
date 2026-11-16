@@ -457,6 +457,46 @@ def copy_document(document_id: int, payload: dict, db: Session = Depends(get_db)
     }
 
 
+def _submission_document_name(payload: dict, fallback: str) -> str:
+    metadata_keys = ('purpose', 'applicant_name', 'application_date')
+    if not any(key in payload for key in metadata_keys):
+        return str(payload.get('name') or fallback)
+    if not all(str(payload.get(key) or '').strip() for key in metadata_keys):
+        raise HTTPException(
+            status_code=422,
+            detail='Tujuan, nama pemohon, dan tanggal pengajuan wajib diisi.',
+        )
+
+    try:
+        application_date = datetime.strptime(
+            str(payload['application_date']), '%Y-%m-%d'
+        ).date()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=422,
+            detail='Tanggal pengajuan harus valid dan menggunakan format YYYY-MM-DD.',
+        ) from error
+
+    def safe_component(value: str) -> str:
+        component = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', ' ', value)
+        component = re.sub(r'\s+', ' ', component).strip(' .')
+        if not component:
+            raise HTTPException(status_code=422, detail='Nama file pengajuan tidak valid.')
+        return component
+
+    purpose = safe_component(str(payload['purpose']).strip())
+    applicant_name = safe_component(str(payload['applicant_name']).strip())
+    document_name = (
+        f'Pengajuan {purpose} - {applicant_name} {application_date:%d%m%Y}'
+    )
+    if len(document_name) > 195:
+        raise HTTPException(
+            status_code=422,
+            detail='Nama file terlalu panjang. Persingkat tujuan atau nama pemohon.',
+        )
+    return document_name
+
+
 @app.post('/api/documents/generate')
 def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
     template_name = payload.get('template_name', 'Reimbursement Form')
@@ -472,13 +512,13 @@ def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
 
     name = payload.get('name') or f'{template_name} {datetime.now().strftime("%Y%m%d-%H%M")}'
     if template_row.file_name and Path(template_row.file_name).suffix.lower() == '.xlsx':
+        name = _submission_document_name(payload, name)
         template_path = (TEMPLATE_DIR / template_row.file_name).resolve()
         if not template_path.is_relative_to(TEMPLATE_DIR.resolve()) or not template_path.is_file():
             raise HTTPException(status_code=404, detail='Template file not found')
         try:
             analysis = analyze_spreadsheet(template_path)
-            file_stem = re.sub(r'[^a-zA-Z0-9_-]+', '-', str(name)).strip('-').lower()
-            generated_name = f'{file_stem or "document"}-{uuid.uuid4().hex[:8]}.xlsx'
+            generated_name = f'{uuid.uuid4().hex}.xlsx'
             output_path = GENERATED_DIR / generated_name
             generate_spreadsheet(
                 template_path,
@@ -524,6 +564,7 @@ def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
             'id': document_record.id,
             'name': document_record.name,
             'status': document_record.status,
+            'file_path': document_record.file_path,
             'download_url': document_record.file_path,
             'message': 'Document generated successfully.',
         }
@@ -640,8 +681,14 @@ def dashboard(db: Session = Depends(get_db)) -> dict:
 
 
 @app.get('/api/files/{filename}')
-def get_generated_file(filename: str) -> FileResponse:
+def get_generated_file(filename: str, db: Session = Depends(get_db)) -> FileResponse:
     file_path = GENERATED_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail='File not found')
-    return FileResponse(path=file_path, filename=filename)
+    document = (
+        db.query(DocumentRecord)
+        .filter(DocumentRecord.file_path == f'/api/files/{filename}')
+        .first()
+    )
+    download_name = f'{document.name}{file_path.suffix}' if document else filename
+    return FileResponse(path=file_path, filename=download_name)
