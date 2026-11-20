@@ -989,14 +989,16 @@ function App() {
               </div>
 
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDialog('wallpaper')}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
-                >
-                  <Image size={16} />
-                  Wallpaper
-                </button>
+                {activeSection === 'dashboard' && (
+                  <button
+                    type="button"
+                    onClick={() => setDialog('wallpaper')}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
+                  >
+                    <Image size={16} />
+                    Wallpaper
+                  </button>
+                )}
                 {['documents', 'all-documents'].includes(activeSection) && (
                   <button
                     type="button"
@@ -1644,7 +1646,7 @@ function App() {
                           </button>
                         )}
                       </div>
-                      <div className="grid gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         {templateAnalysis.headers
                           .filter((header) => header.editable)
                           .map((header) => (
@@ -2150,7 +2152,7 @@ function App() {
                   {templateFieldAnalysis.headers.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-sm font-semibold text-slate-800">Rincian item</h4>
-                      <div className="grid gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         {templateFieldAnalysis.headers.map((header) => (
                           <label
                             key={header.key}

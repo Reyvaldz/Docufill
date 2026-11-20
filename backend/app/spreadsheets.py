@@ -123,7 +123,7 @@ def _analyze_worksheet(
             label = cell.value
             if not isinstance(label, str) or not label.strip() or label.startswith('='):
                 continue
-            if not _is_document_input_label(label):
+            if not _is_document_input_label(label, row_index):
                 continue
 
             label_right = _merged_right_edge(row_index, column_index, merged_ranges)
@@ -175,7 +175,7 @@ def _analyze_worksheet(
     }
 
 
-def _is_document_input_label(label: str) -> bool:
+def _is_document_input_label(label: str, row_index: int) -> bool:
     normalized = re.sub(r'[^a-z0-9]+', ' ', label.casefold()).strip()
     accepted_labels = {
         'nama',
@@ -197,15 +197,41 @@ def _is_document_input_label(label: str) -> bool:
         'nama departemen business unit',
         'business unit',
         'department',
+        'tanggal',
+        'date',
     }
-    return normalized in accepted_labels
+    if normalized in accepted_labels:
+        return True
+
+    words = normalized.split()
+    if not normalized or len(normalized) > 48 or len(words) > 5:
+        return False
+    # Free text in the first row is usually a sheet title, not a fillable field.
+    if row_index == 1:
+        return False
+    if normalized in {
+        'contoh',
+        'detail',
+        'data pengajuan',
+        'data pemohon',
+        'informasi',
+        'informasi pengajuan',
+        'informasi umum',
+        'rincian',
+        'rincian biaya',
+        'rincian item',
+    } or words[0] in {'contoh', 'form', 'sample', 'template'}:
+        return False
+    return True
 
 
 def _input_type_for_label(label: str) -> str:
     normalized = re.sub(r'[^a-z0-9]+', ' ', label.casefold()).strip()
     if normalized in {'no', 'nomor', 'no urut', 'nomor urut', 'no item'}:
         return 'sequence'
-    if normalized.startswith(('tgl ', 'tanggal ', 'date ')):
+    if normalized in {'tgl', 'tanggal', 'date'} or normalized.startswith(
+        ('tgl ', 'tanggal ', 'date ')
+    ):
         return 'date'
     if normalized.startswith(
         ('jumlah', 'nominal', 'harga', 'kuantitas', 'qty', 'quantity')

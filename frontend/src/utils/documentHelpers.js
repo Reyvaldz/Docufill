@@ -15,7 +15,9 @@ export function getSubmissionFieldType(label = '') {
   ) {
     return 'purpose'
   }
-  if (['tgl pengajuan', 'tanggal pengajuan'].includes(normalized)) {
+  if (
+    ['tgl', 'tgl pengajuan', 'tanggal pengajuan', 'tanggal', 'date'].includes(normalized)
+  ) {
     return 'applicationDate'
   }
   return null
