@@ -1,12 +1,5 @@
 import { Copy as CopyIcon, Download, Eye, Pencil, Trash2 } from 'lucide-react'
 
-const statusStyles = {
-  approved: 'bg-emerald-100 text-emerald-800',
-  generated: 'bg-blue-100 text-blue-800',
-  pending: 'bg-amber-100 text-amber-800',
-  draft: 'bg-slate-200 text-slate-700',
-}
-
 export default function DocumentTable({
   documents,
   onDownload,
@@ -29,7 +22,6 @@ export default function DocumentTable({
             <th className="pb-3 pr-4 font-medium">Name</th>
             <th className="pb-3 pr-4 font-medium">Category</th>
             <th className="pb-3 pr-4 font-medium">Template</th>
-            <th className="pb-3 pr-4 font-medium">Status</th>
             <th className="pb-3 font-medium">Actions</th>
           </tr>
         </thead>
@@ -48,38 +40,44 @@ export default function DocumentTable({
               <td className="py-3 pr-4 text-slate-600">
                 {item.template_name || 'Reimbursement Form'}
               </td>
-              <td className="py-3 pr-4">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                    statusStyles[item.status] || statusStyles.generated
-                  }`}
-                >
-                  {item.status}
-                </span>
-              </td>
               <td className="py-3">
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="space-y-2">
                   {item.folder_name && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <button
+                        type="button"
+                        disabled={openingDocumentId === item.id}
+                        onClick={() => onPreviewFolder(item)}
+                        className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
+                      >
+                        <Eye size={14} />
+                        Lihat folder
+                      </button>
+                      <span aria-hidden="true" className="text-slate-300">
+                        |
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onDownload(item)}
+                        className="inline-flex items-center gap-1.5 text-brand-700"
+                      >
+                        <Download size={14} />
+                        Unduh folder
+                      </button>
+                    </div>
+                  )}
+                  {!item.folder_name && (
                     <button
                       type="button"
-                      disabled={openingDocumentId === item.id}
-                      onClick={() => onPreviewFolder(item)}
-                      className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
+                      onClick={() => onDownload(item)}
+                      className="inline-flex items-center gap-1.5 text-brand-700"
                     >
-                      <Eye size={14} />
-                      Lihat folder
+                      <Download size={14} />
+                      Download
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => onDownload(item)}
-                    className="inline-flex items-center gap-2 text-brand-700"
-                  >
-                    <Download size={14} />
-                    {item.folder_name ? 'Unduh folder' : 'Download'}
-                  </button>
                   {item.file_path?.toLowerCase().endsWith('.xlsx') && (
-                    <>
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
                       <button
                         type="button"
                         disabled={openingDocumentId === item.id}
@@ -98,17 +96,28 @@ export default function DocumentTable({
                         <CopyIcon size={14} />
                         Copy
                       </button>
-                    </>
+                      <button
+                        type="button"
+                        disabled={deletingDocumentId === item.id}
+                        onClick={() => onDelete(item)}
+                        className="inline-flex items-center gap-1.5 text-red-700 disabled:opacity-50"
+                      >
+                        <Trash2 size={14} />
+                        {deletingDocumentId === item.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   )}
-                  <button
-                    type="button"
-                    disabled={deletingDocumentId === item.id}
-                    onClick={() => onDelete(item)}
-                    className="inline-flex items-center gap-1.5 text-red-700 disabled:opacity-50"
-                  >
-                    <Trash2 size={14} />
-                    {deletingDocumentId === item.id ? 'Deleting…' : 'Delete'}
-                  </button>
+                  {!item.file_path?.toLowerCase().endsWith('.xlsx') && (
+                    <button
+                      type="button"
+                      disabled={deletingDocumentId === item.id}
+                      onClick={() => onDelete(item)}
+                      className="inline-flex items-center gap-1.5 text-sm text-red-700 disabled:opacity-50"
+                    >
+                      <Trash2 size={14} />
+                      {deletingDocumentId === item.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>

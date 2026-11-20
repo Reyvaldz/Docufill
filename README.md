@@ -145,10 +145,10 @@ same per-folder upload limits.
 Email templates are separate from Excel document templates. The
 `{document_name}` subject token fills with the generated pengajuan name, such as
 `Pengajuan Reimbursement - Reyval Danendra 06112026`. Manage recipient addresses
-and email templates from **Email Templates**. **Buka aplikasi email** opens the
-user's configured mail app with the selected recipients, subject, and message;
-attach the downloaded ZIP manually before sending. This flow does not store or
-request email credentials.
+and email templates from the **Templates Email** tab in **Templates**.
+**Buka aplikasi email** opens the user's configured mail app with the selected
+recipients, subject, and message; attach the downloaded ZIP manually before
+sending. This flow does not store or request email credentials.
 
 DocuFill currently has no user sign-in. Docker Compose binds to `127.0.0.1` by
 default; set `APP_BIND_ADDRESS` only if you intentionally need network access

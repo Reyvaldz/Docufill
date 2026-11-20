@@ -10,7 +10,6 @@ import {
   FolderKanban,
   Image,
   LayoutGrid,
-  Mail,
   Pencil,
   Plus,
   Send,
@@ -20,6 +19,7 @@ import {
 import BrandLogo from './components/BrandLogo.jsx'
 import DocumentTable from './components/DocumentTable.jsx'
 import { FormField, Modal, ModalActions } from './components/Modal.jsx'
+import TemplateTabs from './components/TemplateTabs.jsx'
 import {
   buildSubmissionName,
   formatDate,
@@ -43,7 +43,6 @@ const navigation = [
   { label: 'Templates', icon: FileText, target: 'templates' },
   { label: 'Documents', icon: FolderKanban, target: 'documents' },
   { label: 'All Documents', icon: Files, target: 'all-documents' },
-  { label: 'Email Templates', icon: Mail, target: 'email-templates' },
 ]
 
 const pageTitles = {
@@ -51,7 +50,7 @@ const pageTitles = {
   templates: 'Templates',
   documents: 'Documents',
   'all-documents': 'All Documents',
-  'email-templates': 'Email Templates',
+  'email-templates': 'Templates',
 }
 
 const WALLPAPER_STORAGE_KEY = 'docufill.wallpaper'
@@ -955,7 +954,12 @@ function App() {
                   key={item.label}
                   type="button"
                   onClick={() => navigate(item)}
-                  aria-current={activeSection === item.target ? 'page' : undefined}
+                  aria-current={
+                    activeSection === item.target ||
+                    (item.target === 'templates' && activeSection === 'email-templates')
+                      ? 'page'
+                      : undefined
+                  }
                   className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                     activeSection === item.target
                       ? 'bg-slate-800 text-white'
@@ -1043,7 +1047,12 @@ function App() {
                   key={item.label}
                   type="button"
                   onClick={() => navigate(item)}
-                  aria-current={activeSection === item.target ? 'page' : undefined}
+                  aria-current={
+                    activeSection === item.target ||
+                    (item.target === 'templates' && activeSection === 'email-templates')
+                      ? 'page'
+                      : undefined
+                  }
                   className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium shadow-sm ${
                     activeSection === item.target
                       ? 'bg-brand-600 text-white'
@@ -1090,7 +1099,17 @@ function App() {
               </section>
             </section>
           ) : activeSection === 'templates' ? (
-            <section className="card">
+            <section className="space-y-6">
+              <TemplateTabs
+                activeSection={activeSection}
+                onSelect={setActiveSection}
+              />
+              <section
+                id="templates-panel"
+                role="tabpanel"
+                aria-labelledby="templates-tab"
+                className="card"
+              >
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
@@ -1140,11 +1159,13 @@ function App() {
                           <CalendarDays size={14} />
                           {formatDate(template.created_at)}
                         </p>
+                      </div>
+                      <div className="mt-4 space-y-2 border-t border-slate-200 pt-4">
                         {template.file_name?.toLowerCase().endsWith('.xlsx') && (
                           <button
                             type="button"
                             onClick={() => openTemplateFieldEditor(template)}
-                            className="inline-flex items-center gap-1.5 font-medium text-brand-700"
+                            className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left text-sm font-medium text-brand-700 hover:bg-brand-50"
                           >
                             <Pencil size={14} />
                             Edit form template
@@ -1154,7 +1175,7 @@ function App() {
                           type="button"
                           disabled={deletingTemplateId === template.id}
                           onClick={() => deleteTemplate(template)}
-                          className="inline-flex items-center gap-1.5 font-medium text-red-700 disabled:opacity-50"
+                          className="flex w-full items-center gap-1.5 rounded-lg px-2 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
                           <Trash2 size={14} />
                           {deletingTemplateId === template.id ? 'Deleting…' : 'Delete template'}
@@ -1164,6 +1185,7 @@ function App() {
                   ))}
                 </div>
               </section>
+            </section>
           ) : activeSection === 'documents' ? (
             <section className="card">
               <div className="mb-5 flex items-center justify-between">
@@ -1196,6 +1218,16 @@ function App() {
             </section>
           ) : activeSection === 'email-templates' ? (
             <section className="space-y-6">
+              <TemplateTabs
+                activeSection={activeSection}
+                onSelect={setActiveSection}
+              />
+              <section
+                id="email-templates-panel"
+                role="tabpanel"
+                aria-labelledby="email-templates-tab"
+                className="space-y-6"
+              >
               <section className="card">
                 <div className="mb-5">
                   <h3 className="text-xl font-semibold text-slate-900">Alamat penerima</h3>
@@ -1293,6 +1325,7 @@ function App() {
                 ) : (
                   <p className="text-sm text-slate-500">Belum ada template email.</p>
                 )}
+              </section>
               </section>
             </section>
           ) : (
@@ -1854,7 +1887,7 @@ function App() {
                       type="button"
                       onClick={() => {
                         setDialog(null)
-                        navigate(navigation.find((item) => item.target === 'email-templates'))
+                        setActiveSection('email-templates')
                       }}
                       className="font-semibold underline"
                     >
@@ -1967,7 +2000,9 @@ function App() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-amber-800">Tambahkan alamat email dari halaman Email Templates terlebih dahulu.</p>
+                <p className="text-sm text-amber-800">
+                  Tambahkan alamat email dari tab Templates Email terlebih dahulu.
+                </p>
               )}
             </fieldset>
             <label className="block text-sm font-medium text-slate-700">
