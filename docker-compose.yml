@@ -8,11 +8,6 @@ services:
       DATA_DIR: "${DATA_DIR:-/data}"
       CORS_ORIGINS: "${CORS_ORIGINS:-*}"
       MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-10}"
-      EMAIL_SMTP_HOST: "${EMAIL_SMTP_HOST:-smtp.gmail.com}"
-      EMAIL_SMTP_PORT: "${EMAIL_SMTP_PORT:-587}"
-      EMAIL_SMTP_USERNAME: "${EMAIL_SMTP_USERNAME:-}"
-      EMAIL_SMTP_PASSWORD: "${EMAIL_SMTP_PASSWORD:-}"
-      EMAIL_FROM: "${EMAIL_FROM:-}"
       PYTHONUNBUFFERED: "1"
     volumes:
       - "docufill-data:${DATA_DIR:-/data}"

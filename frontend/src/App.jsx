@@ -186,7 +186,6 @@ function App() {
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
   const [folderZipBusy, setFolderZipBusy] = useState(false)
-  const [sendingFolderEmail, setSendingFolderEmail] = useState(false)
   const [newRecipientEmail, setNewRecipientEmail] = useState('')
   const [emailTemplateForm, setEmailTemplateForm] = useState({
     name: '',
@@ -820,28 +819,25 @@ function App() {
     }
   }
 
-  const sendFolderEmail = async (event) => {
+  const openFolderEmailDraft = (event) => {
     event.preventDefault()
     if (!folderPreview || !selectedEmailRecipients.length) {
-      setNotice('Pilih setidaknya satu alamat email penerima.')
+      setFolderWorkflowError('Pilih setidaknya satu alamat email penerima.')
       return
     }
-    setSendingFolderEmail(true)
-    setFolderWorkflowError('')
-    try {
-      await axios.post(`${API_URL}/documents/${folderPreview.id}/send-email`, {
-        recipients: selectedEmailRecipients,
-        subject: emailSubject,
-        body: emailBody,
-      })
-      setDialog(null)
-      setNotice(`Folder "${folderPreview.folder_name}" berhasil dikirim melalui email.`)
-    } catch (error) {
-      console.error('Unable to send document folder email', error)
-      setFolderWorkflowError(error.response?.data?.detail || 'Email folder gagal dikirim.')
-    } finally {
-      setSendingFolderEmail(false)
+    const recipient = selectedEmailRecipients.map((email) => encodeURIComponent(email)).join(',')
+    const mailtoUrl =
+      `mailto:${recipient}?subject=${encodeURIComponent(emailSubject.trim())}` +
+      `&body=${encodeURIComponent(emailBody.trim())}`
+    if (mailtoUrl.length > 8000) {
+      setFolderWorkflowError('Isi email terlalu panjang untuk dibuka di aplikasi email. Persingkat pesannya.')
+      return
     }
+    window.location.href = mailtoUrl
+    setDialog(null)
+    setNotice(
+      `Aplikasi email dibuka untuk folder "${folderPreview.folder_name}". Lampirkan ZIP hasil unduhan sebelum mengirim.`,
+    )
   }
 
   const selectEmailTemplate = (templateId) => {
@@ -1766,11 +1762,19 @@ function App() {
               </div>
             </div>
           ) : (
-            <form onSubmit={sendFolderEmail} className="space-y-4">
+            <form onSubmit={openFolderEmailDraft} className="space-y-4">
               <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
-                ZIP <strong>{folderPreview.folder_name}.zip</strong> akan dilampirkan otomatis.
-                Pengiriman memakai SMTP Gmail yang harus dikonfigurasi di server.
+                ZIP <strong>{folderPreview.folder_name}.zip</strong> sudah diunduh. Tombol di bawah
+                membuka aplikasi email dengan penerima, subjek, dan isi yang diisi. Lampirkan ZIP
+                secara manual sebelum mengirim.
               </p>
+              <a
+                href={`${API_URL}/documents/${folderPreview.id}/download-folder`}
+                className="inline-flex items-center gap-2 text-sm font-medium text-brand-700"
+              >
+                <Download size={15} />
+                Unduh ulang ZIP
+              </a>
               {folderWorkflowError && (
                 <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
                   {folderWorkflowError}
@@ -1863,7 +1867,6 @@ function App() {
                 <button
                   type="submit"
                   disabled={
-                    sendingFolderEmail ||
                     !selectedEmailRecipients.length ||
                     !emailSubject.trim() ||
                     !emailBody.trim()
@@ -1871,7 +1874,7 @@ function App() {
                   className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
                   <Send size={15} />
-                  {sendingFolderEmail ? 'Mengirim…' : 'Kirim email'}
+                  Buka aplikasi email
                 </button>
               </div>
             </form>

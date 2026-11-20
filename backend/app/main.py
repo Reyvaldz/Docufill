@@ -4,12 +4,9 @@ import shutil
 import logging
 import json
 import re
-import smtplib
-import ssl
 import tempfile
 import uuid
 from datetime import datetime
-from email.message import EmailMessage
 from io import BytesIO
 from logging.config import dictConfig
 from pathlib import Path
@@ -27,11 +24,6 @@ from sqlalchemy.orm import Session
 
 from .config import (
     CORS_ORIGINS,
-    EMAIL_FROM,
-    EMAIL_SMTP_HOST,
-    EMAIL_SMTP_PASSWORD,
-    EMAIL_SMTP_PORT,
-    EMAIL_SMTP_USERNAME,
     GENERATED_DIR,
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_MB,
@@ -1060,78 +1052,6 @@ def delete_email_template(template_id: int, db: Session = Depends(get_db)) -> di
     db.delete(template)
     db.commit()
     return {'message': 'Template email dihapus.'}
-
-
-@app.post('/api/documents/{document_id}/send-email')
-def send_document_folder_email(
-    document_id: int,
-    payload: dict,
-    db: Session = Depends(get_db),
-) -> dict:
-    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
-    if not document or not document.folder_name:
-        raise HTTPException(status_code=404, detail='Folder dokumen tidak ditemukan.')
-    recipients = _validated_saved_recipients(payload.get('recipients'), db)
-    subject = payload.get('subject')
-    body = payload.get('body')
-    if (
-        not isinstance(subject, str)
-        or not subject.strip()
-        or len(subject) > 255
-        or any(ord(character) < 32 for character in subject)
-    ):
-        raise HTTPException(status_code=422, detail='Subjek email wajib diisi (maksimal 255 karakter).')
-    if not isinstance(body, str) or not body.strip() or len(body) > 15000:
-        raise HTTPException(status_code=422, detail='Isi email wajib diisi (maksimal 15.000 karakter).')
-    if not EMAIL_SMTP_USERNAME or not EMAIL_SMTP_PASSWORD or not EMAIL_FROM:
-        raise HTTPException(
-            status_code=503,
-            detail='Email belum dikonfigurasi. Atur kredensial Gmail pada environment server.',
-        )
-
-    message = EmailMessage()
-    message['From'] = EMAIL_FROM
-    message['To'] = ', '.join(recipients)
-    message['Subject'] = subject.strip()
-    message.set_content(body.strip())
-    message.add_attachment(
-        _document_folder_archive(document),
-        maintype='application',
-        subtype='zip',
-        filename=f'{document.folder_name}.zip',
-    )
-
-    try:
-        context = ssl.create_default_context()
-        if EMAIL_SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(
-                EMAIL_SMTP_HOST,
-                EMAIL_SMTP_PORT,
-                timeout=20,
-                context=context,
-            ) as server:
-                server.login(EMAIL_SMTP_USERNAME, EMAIL_SMTP_PASSWORD)
-                refused = server.send_message(message)
-        else:
-            with smtplib.SMTP(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, timeout=20) as server:
-                server.ehlo()
-                server.starttls(context=context)
-                server.ehlo()
-                server.login(EMAIL_SMTP_USERNAME, EMAIL_SMTP_PASSWORD)
-                refused = server.send_message(message)
-        if refused:
-            raise HTTPException(
-                status_code=502,
-                detail='Sebagian penerima menolak email. Periksa kembali alamat penerima.',
-            )
-    except smtplib.SMTPException as error:
-        logger.exception('Could not send document folder email %s', document.id)
-        raise HTTPException(status_code=502, detail='Email gagal dikirim oleh server SMTP.') from error
-    except OSError as error:
-        logger.exception('Could not connect to SMTP server for document %s', document.id)
-        raise HTTPException(status_code=502, detail='Tidak dapat terhubung ke server email.') from error
-
-    return {'message': 'Folder dokumen berhasil dikirim.', 'recipients': recipients}
 
 
 @app.get('/api/dashboard')
