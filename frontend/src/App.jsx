@@ -4,9 +4,7 @@ import {
   ArrowUpRight,
   CalendarDays,
   CircleDollarSign,
-  Copy as CopyIcon,
   Download,
-  Eye,
   FileText,
   Files,
   FolderKanban,
@@ -19,6 +17,15 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import BrandLogo from './components/BrandLogo.jsx'
+import DocumentTable from './components/DocumentTable.jsx'
+import { FormField, Modal, ModalActions } from './components/Modal.jsx'
+import {
+  buildSubmissionName,
+  formatDate,
+  getSubmissionFieldType,
+  getTodayDateInput,
+} from './utils/documentHelpers.js'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 const apiAssetUrl = (path) => `${API_URL.replace(/\/api\/?$/, '')}${path}`
@@ -29,13 +36,6 @@ const defaultDashboard = {
   total_categories: 0,
   latest_documents: [],
   recent_activity: [],
-}
-
-const statusStyles = {
-  approved: 'bg-emerald-100 text-emerald-800',
-  generated: 'bg-blue-100 text-blue-800',
-  pending: 'bg-amber-100 text-amber-800',
-  draft: 'bg-slate-200 text-slate-700',
 }
 
 const navigation = [
@@ -97,50 +97,6 @@ function loadSavedWallpaper() {
     console.error('Unable to load saved wallpaper', error)
     return { type: 'preset', value: 'plain' }
   }
-}
-
-function getSubmissionFieldType(label = '') {
-  const normalized = label.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-  if (['nama', 'nama karyawan', 'nama pemohon', 'employee name'].includes(normalized)) {
-    return 'applicantName'
-  }
-  if (
-    [
-      'tujuan',
-      'tujuan pengajuan',
-      'keperluan',
-      'keperluan pengajuan',
-      'purpose',
-      'application purpose',
-    ].includes(normalized)
-  ) {
-    return 'purpose'
-  }
-  if (['tgl pengajuan', 'tanggal pengajuan'].includes(normalized)) {
-    return 'applicationDate'
-  }
-  return null
-}
-
-function getTodayDateInput() {
-  const today = new Date()
-  const month = String(today.getMonth() + 1).padStart(2, '0')
-  const day = String(today.getDate()).padStart(2, '0')
-  return `${today.getFullYear()}-${month}-${day}`
-}
-
-function buildSubmissionName({ purpose, applicantName, applicationDate }) {
-  const safePart = (value) =>
-    String(value || '')
-      .split('')
-      .filter((character) => character.charCodeAt(0) >= 32)
-      .join('')
-      .replace(/[<>:"/\\|?*]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/^[. ]+|[. ]+$/g, '')
-  const date = applicationDate ? applicationDate.split('-').reverse().join('') : ''
-  return `Pengajuan ${safePart(purpose) || '[tujuan]'} - ${safePart(applicantName) || '[nama]'} ${date || '[tanggalbulantahun]'}`
 }
 
 function App() {
@@ -986,9 +942,7 @@ function App() {
         <aside className="hidden w-72 flex-col justify-between bg-slate-950 p-6 text-slate-100 lg:flex">
           <div>
             <div className="mb-10 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-lg font-bold">
-                D
-              </div>
+              <BrandLogo />
               <div>
                 <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Internal</p>
                 <h1 className="text-xl font-semibold">DocuFill</h1>
@@ -1540,7 +1494,7 @@ function App() {
                 {templateAnalysis.fields.length > 0 && (
                   <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <h3 className="font-semibold text-slate-900">Informasi dokumen</h3>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3">
                       {templateAnalysis.fields.map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
                           {field.label}
@@ -1573,7 +1527,7 @@ function App() {
                         Templates.
                       </p>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3">
                       {customFields.map((field, index) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
                           {field.label}
@@ -1657,7 +1611,7 @@ function App() {
                           </button>
                         )}
                       </div>
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="grid gap-3">
                         {templateAnalysis.headers
                           .filter((header) => header.editable)
                           .map((header) => (
@@ -1743,7 +1697,7 @@ function App() {
               <section className="space-y-3">
                 <h3 className="font-semibold text-slate-900">Isi Excel</h3>
                 {folderPreview.fields.length > 0 && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3">
                     {folderPreview.fields.map((field) => (
                       <div key={field.key} className="rounded-lg border border-slate-200 p-3">
                         <p className="text-xs text-slate-500">{field.label}</p>
@@ -1753,7 +1707,7 @@ function App() {
                   </div>
                 )}
                 {folderPreview.custom_fields.length > 0 && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3">
                     {folderPreview.custom_fields.map((field) => (
                       <div key={field.key} className="rounded-lg border border-slate-200 p-3">
                         <p className="text-xs text-slate-500">{field.label}</p>
@@ -1875,7 +1829,7 @@ function App() {
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium text-slate-700">Kirim kepada</legend>
                 {emailRecipients.length ? (
-                  <div className="grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+                  <div className="grid gap-2 rounded-lg border border-slate-200 p-3">
                     {emailRecipients.map((recipient) => (
                       <label key={recipient.id} className="flex items-center gap-2 text-sm text-slate-700">
                         <input
@@ -2117,7 +2071,7 @@ function App() {
                   </div>
                   {(templateFieldAnalysis.fields.length > 0 ||
                     templateCustomFields.length > 0) && (
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3">
                       {templateFieldAnalysis.fields.map((field) => (
                         <label
                           key={field.key}
@@ -2161,7 +2115,7 @@ function App() {
                   {templateFieldAnalysis.headers.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-sm font-semibold text-slate-800">Rincian item</h4>
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="grid gap-3">
                         {templateFieldAnalysis.headers.map((header) => (
                           <label
                             key={header.key}
@@ -2241,7 +2195,7 @@ function App() {
                 {templateCustomFields.map((field, index) => (
                   <div
                     key={field.key}
-                    className="grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_0.7fr_0.7fr_auto]"
+                    className="grid gap-3 rounded-lg bg-slate-50 p-3"
                   >
                     <label className="text-sm font-medium text-slate-700">
                       Label isian
@@ -2382,192 +2336,6 @@ function App() {
           </div>
         </Modal>
       )}
-    </div>
-  )
-}
-
-function formatDate(value) {
-  if (!value) return 'Tanggal tidak tersedia'
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Tanggal tidak tersedia'
-
-  return new Intl.DateTimeFormat('id-ID', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(date)
-}
-
-function DocumentTable({
-  documents,
-  onDownload,
-  onDelete,
-  onEdit,
-  onCopy,
-  onPreviewFolder,
-  deletingDocumentId,
-  openingDocumentId,
-}) {
-  if (!documents.length) {
-    return <p className="py-6 text-center text-sm text-slate-500">Belum ada dokumen.</p>
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 text-slate-500">
-            <th className="pb-3 pr-4 font-medium">Name</th>
-            <th className="pb-3 pr-4 font-medium">Category</th>
-            <th className="pb-3 pr-4 font-medium">Template</th>
-            <th className="pb-3 pr-4 font-medium">Status</th>
-            <th className="pb-3 font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {documents.map((item) => (
-            <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
-              <td className="py-3 pr-4 font-medium text-slate-800">
-                {item.name}
-                {item.folder_name && (
-                  <span className="mt-1 block text-xs font-normal text-slate-500">
-                    Folder: {item.folder_name}
-                  </span>
-                )}
-              </td>
-              <td className="py-3 pr-4 text-slate-600">{item.category || 'Finance'}</td>
-              <td className="py-3 pr-4 text-slate-600">{item.template_name || 'Reimbursement Form'}</td>
-              <td className="py-3 pr-4">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[item.status] || statusStyles.generated}`}
-                >
-                  {item.status}
-                </span>
-              </td>
-              <td className="py-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  {item.folder_name && (
-                    <button
-                      type="button"
-                      disabled={openingDocumentId === item.id}
-                      onClick={() => onPreviewFolder(item)}
-                      className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
-                    >
-                      <Eye size={14} />
-                      Lihat folder
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onDownload(item)}
-                    className="inline-flex items-center gap-2 text-brand-700"
-                  >
-                    <Download size={14} />
-                    {item.folder_name ? 'Unduh folder' : 'Download'}
-                  </button>
-                  {item.file_path?.toLowerCase().endsWith('.xlsx') && (
-                    <>
-                      <button
-                        type="button"
-                        disabled={openingDocumentId === item.id}
-                        onClick={() => onEdit(item)}
-                        className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
-                      >
-                        <Pencil size={14} />
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        disabled={openingDocumentId === item.id}
-                        onClick={() => onCopy(item)}
-                        className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
-                      >
-                        <CopyIcon size={14} />
-                        Copy
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    disabled={deletingDocumentId === item.id}
-                    onClick={() => onDelete(item)}
-                    className="inline-flex items-center gap-1.5 text-red-700 disabled:opacity-50"
-                  >
-                    <Trash2 size={14} />
-                    {deletingDocumentId === item.id ? 'Deleting…' : 'Delete'}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function Modal({ title, onClose, children, wide = false }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
-        className={`max-h-[90vh] w-full ${
-          wide ? 'max-w-5xl' : 'max-w-xl'
-        } overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl`}
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <h2 id="modal-title" className="text-xl font-semibold text-slate-900">
-            {title}
-          </h2>
-          <button type="button" onClick={onClose} aria-label="Close dialog">
-            <X size={20} />
-          </button>
-        </div>
-        {children}
-      </section>
-    </div>
-  )
-}
-
-function FormField({ name, label, type = 'text', required = false }) {
-  return (
-    <label className="block text-sm font-medium text-slate-700">
-      {label}
-      <input
-        name={name}
-        type={type}
-        required={required}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-      />
-    </label>
-  )
-}
-
-function ModalActions({ onCancel, saving, submitLabel, disabled = false }) {
-  return (
-    <div className="flex justify-end gap-3 pt-2">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        disabled={saving || disabled}
-        className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
-        {saving ? 'Please wait…' : submitLabel}
-      </button>
     </div>
   )
 }

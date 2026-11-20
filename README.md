@@ -9,6 +9,21 @@ Choose **Wallpaper** to select a built-in background or upload a JPG, PNG, or
 WebP image. The choice is saved locally in the current browser and is not
 uploaded to the backend or shared across devices.
 
+## Code structure
+
+- `frontend/src/App.jsx` connects the pages, application state, and user actions.
+- `frontend/src/components/` contains reusable interface pieces such as the logo,
+  document table, and dialog controls.
+- `frontend/src/utils/documentHelpers.js` contains shared document-name and date
+  helpers.
+- `backend/app/main.py` defines the HTTP API; `models.py` and `schemas.py`
+  describe stored data and API inputs/outputs.
+
+When changing a feature, start at the page or action in `App.jsx`, then follow
+the component or helper it uses. Keep reusable display elements in
+`frontend/src/components/` and shared formatting logic in
+`frontend/src/utils/`.
+
 ## Configuration
 
 The backend reads environment variables in `backend/app/config.py`:
