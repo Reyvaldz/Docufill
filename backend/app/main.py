@@ -692,39 +692,21 @@ def _safe_folder_name(value: str) -> str:
     return name
 
 
-@app.post('/api/documents/generate-folder')
-async def generate_document_folder(
-    payload: str = Form(...),
-    folder_name: str = Form(...),
-    photos: list[UploadFile] = File(default=[]),
-    db: Session = Depends(get_db),
-) -> dict:
-    folder_name = _safe_folder_name(folder_name)
-    if len(photos) > MAX_FOLDER_PHOTOS:
+async def _validated_folder_photos(
+    photos: list[UploadFile],
+    existing_names: set[str] | None = None,
+    existing_count: int = 0,
+    existing_bytes: int = 0,
+) -> list[tuple[str, bytes]]:
+    if existing_count + len(photos) > MAX_FOLDER_PHOTOS:
         raise HTTPException(
             status_code=413,
             detail=f'Maksimal {MAX_FOLDER_PHOTOS} foto untuk setiap folder.',
         )
-    try:
-        document_payload = json.loads(payload)
-    except json.JSONDecodeError as error:
-        raise HTTPException(status_code=422, detail='Data dokumen tidak valid.') from error
-    if not isinstance(document_payload, dict):
-        raise HTTPException(status_code=422, detail='Data dokumen tidak valid.')
 
-    template = (
-        db.query(Template).filter(Template.id == document_payload.get('template_id')).first()
-        if document_payload.get('template_id') is not None
-        else None
-    )
-    if not template:
-        raise HTTPException(status_code=404, detail='Template not found')
-    if not template.file_name or Path(template.file_name).suffix.lower() != '.xlsx':
-        raise HTTPException(status_code=415, detail='Folder hanya mendukung template Excel .xlsx.')
-
+    total_photo_bytes = existing_bytes
+    used_names = {name.casefold() for name in existing_names or set()}
     photo_files = []
-    total_photo_bytes = 0
-    used_names = set()
     for index, photo in enumerate(photos, start=1):
         content = await photo.read(MAX_FOLDER_PHOTO_BYTES + 1)
         if len(content) > MAX_FOLDER_PHOTO_BYTES:
@@ -752,6 +734,66 @@ async def generate_document_folder(
             suffix += 1
         used_names.add(safe_name.casefold())
         photo_files.append((safe_name, content))
+    return photo_files
+
+
+def _existing_folder_photo_state(photo_directory: Path) -> tuple[set[str], int, int]:
+    existing_photos = [
+        path
+        for path in photo_directory.iterdir()
+        if path.is_file() and path.suffix.lower() in {'.jpg', '.jpeg', '.png', '.webp'}
+    ] if photo_directory.is_dir() else []
+    return (
+        {photo.name for photo in existing_photos},
+        len(existing_photos),
+        sum(photo.stat().st_size for photo in existing_photos),
+    )
+
+
+def _store_folder_photos(photo_directory: Path, photo_files: list[tuple[str, bytes]]) -> None:
+    photo_directory.mkdir(parents=True, exist_ok=True)
+    written_paths = []
+    try:
+        for photo_name, content in photo_files:
+            photo_path = photo_directory / photo_name
+            with photo_path.open('xb') as photo_file:
+                photo_file.write(content)
+            written_paths.append(photo_path)
+    except OSError:
+        for photo_path in written_paths:
+            try:
+                photo_path.unlink()
+            except OSError:
+                logger.exception('Could not remove incomplete photo %s', photo_path)
+        raise
+
+
+@app.post('/api/documents/generate-folder')
+async def generate_document_folder(
+    payload: str = Form(...),
+    folder_name: str = Form(...),
+    photos: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+) -> dict:
+    folder_name = _safe_folder_name(folder_name)
+    try:
+        document_payload = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail='Data dokumen tidak valid.') from error
+    if not isinstance(document_payload, dict):
+        raise HTTPException(status_code=422, detail='Data dokumen tidak valid.')
+
+    template = (
+        db.query(Template).filter(Template.id == document_payload.get('template_id')).first()
+        if document_payload.get('template_id') is not None
+        else None
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail='Template not found')
+    if not template.file_name or Path(template.file_name).suffix.lower() != '.xlsx':
+        raise HTTPException(status_code=415, detail='Folder hanya mendukung template Excel .xlsx.')
+
+    photo_files = await _validated_folder_photos(photos)
 
     generated = generate_document(document_payload, db)
     document = db.query(DocumentRecord).filter(DocumentRecord.id == generated['id']).first()
@@ -763,9 +805,7 @@ async def generate_document_folder(
 
     photo_directory = GENERATED_DIR / f'document-{document.id}'
     try:
-        photo_directory.mkdir(parents=True, exist_ok=True)
-        for photo_name, content in photo_files:
-            (photo_directory / photo_name).write_bytes(content)
+        _store_folder_photos(photo_directory, photo_files)
     except OSError as error:
         logger.exception('Could not store photos for document %s', document.id)
         shutil.rmtree(photo_directory, ignore_errors=True)
@@ -789,6 +829,40 @@ async def generate_document_folder(
         'folder_name': folder_name,
         'photo_count': len(photo_files),
         'message': 'Folder dokumen berhasil dibuat.',
+    }
+
+
+@app.post('/api/documents/{document_id}/photos')
+async def add_document_photos(
+    document_id: int,
+    photos: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
+    if not document or not document.folder_name:
+        raise HTTPException(status_code=404, detail='Folder dokumen tidak ditemukan.')
+
+    photo_directory = (GENERATED_DIR / f'document-{document.id}').resolve()
+    if not photo_directory.is_relative_to(GENERATED_DIR.resolve()):
+        raise HTTPException(status_code=500, detail='Lokasi foto dokumen tidak valid.')
+    existing_names, existing_count, existing_bytes = _existing_folder_photo_state(photo_directory)
+    photo_files = await _validated_folder_photos(
+        photos,
+        existing_names,
+        existing_count,
+        existing_bytes,
+    )
+    try:
+        _store_folder_photos(photo_directory, photo_files)
+    except OSError as error:
+        logger.exception('Could not append photos to document %s', document.id)
+        raise HTTPException(status_code=500, detail='Foto tambahan tidak dapat disimpan.') from error
+
+    return {
+        'document_id': document.id,
+        'photos_added': len(photo_files),
+        'photo_count': existing_count + len(photo_files),
+        'message': 'Foto tambahan berhasil disimpan.',
     }
 
 
@@ -853,6 +927,7 @@ def get_document_folder_preview(document_id: int, db: Session = Depends(get_db))
         photos = [
             {
                 'name': photo.name,
+                'size': photo.stat().st_size,
                 'url': f'/api/documents/{document.id}/photos/{quote(photo.name, safe="")}',
             }
             for photo in sorted(photo_directory.iterdir(), key=lambda item: item.name.casefold())

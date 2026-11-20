@@ -169,6 +169,8 @@ function App() {
   const [applicationDate, setApplicationDate] = useState(getTodayDateInput)
   const [folderName, setFolderName] = useState('')
   const [evidencePhotos, setEvidencePhotos] = useState([])
+  const [editingFolderName, setEditingFolderName] = useState('')
+  const [editingFolderPhotos, setEditingFolderPhotos] = useState([])
   const [templateAnalysis, setTemplateAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
   const [formFields, setFormFields] = useState({})
@@ -401,6 +403,8 @@ function App() {
     setApplicationDate(getTodayDateInput())
     setFolderName('')
     setEvidencePhotos([])
+    setEditingFolderName('')
+    setEditingFolderPhotos([])
     setTemplateAnalysis(null)
     setAnalysisError('')
     setFormFields({})
@@ -522,6 +526,28 @@ function App() {
 
     let submissionData
     let outputName = documentName
+    if (['create', 'edit'].includes(documentMode) && evidencePhotos.length) {
+      const currentPhotoCount =
+        documentMode === 'edit' ? editingFolderPhotos.length : 0
+      const currentPhotoBytes =
+        documentMode === 'edit'
+          ? editingFolderPhotos.reduce((total, photo) => total + photo.size, 0)
+          : 0
+      if (currentPhotoCount + evidencePhotos.length > 10) {
+        setNotice('Maksimal 10 foto untuk setiap folder.')
+        return
+      }
+      if (evidencePhotos.some((photo) => photo.size > 8 * 1024 * 1024)) {
+        setNotice('Ukuran setiap foto maksimal 8 MB.')
+        return
+      }
+      const newPhotoBytes = evidencePhotos.reduce((total, photo) => total + photo.size, 0)
+      if (currentPhotoBytes + newPhotoBytes > 30 * 1024 * 1024) {
+        setNotice('Total ukuran foto maksimal 30 MB.')
+        return
+      }
+    }
+
     if (documentMode === 'create') {
       const trimmedFolderName = folderName.trim()
       if (!trimmedFolderName) {
@@ -539,19 +565,6 @@ function App() {
         setNotice('Nama folder berisi karakter yang tidak diizinkan.')
         return
       }
-      if (evidencePhotos.length > 10) {
-        setNotice('Maksimal 10 foto untuk setiap folder.')
-        return
-      }
-      if (evidencePhotos.some((photo) => photo.size > 8 * 1024 * 1024)) {
-        setNotice('Ukuran setiap foto maksimal 8 MB.')
-        return
-      }
-      if (evidencePhotos.reduce((total, photo) => total + photo.size, 0) > 30 * 1024 * 1024) {
-        setNotice('Total ukuran foto maksimal 30 MB.')
-        return
-      }
-
       submissionData = {
         purpose: String(getCurrentSubmissionValue('purpose') || '').trim(),
         applicantName: String(getCurrentSubmissionValue('applicantName') || '').trim(),
@@ -607,11 +620,26 @@ function App() {
     setSaving(true)
     try {
       let generatedDocument
+      let photoUploadError = ''
       if (documentMode === 'edit') {
         generatedDocument = await axios.put(
           `${API_URL}/documents/${editingDocumentId}`,
           payload,
         )
+        if (editingFolderName && evidencePhotos.length) {
+          const formData = new FormData()
+          evidencePhotos.forEach((photo) => formData.append('photos', photo))
+          try {
+            await axios.post(
+              `${API_URL}/documents/${editingDocumentId}/photos`,
+              formData,
+            )
+          } catch (error) {
+            console.error('Unable to add photos to document folder', error)
+            photoUploadError =
+              error.response?.data?.detail || 'Foto tambahan gagal disimpan.'
+          }
+        }
       } else if (documentMode === 'copy') {
         generatedDocument = await axios.post(
           `${API_URL}/documents/${editingDocumentId}/copy`,
@@ -645,7 +673,11 @@ function App() {
         setDialog(null)
         setNotice(
           documentMode === 'edit'
-            ? 'Dokumen berhasil diperbarui.'
+            ? photoUploadError
+              ? `Excel berhasil diperbarui, tetapi foto tambahan gagal disimpan: ${photoUploadError}`
+              : evidencePhotos.length
+                ? `Dokumen diperbarui dan ${evidencePhotos.length} foto tambahan berhasil disimpan.`
+                : 'Dokumen berhasil diperbarui.'
             : 'Salinan dokumen berhasil dibuat.',
         )
       }
@@ -684,10 +716,17 @@ function App() {
     setOpeningDocumentId(item.id)
     try {
       const { data } = await axios.get(`${API_URL}/documents/${item.id}/form`)
+      const { data: folderData } =
+        mode === 'edit' && item.folder_name
+          ? await axios.get(`${API_URL}/documents/${item.id}/folder-preview`)
+          : { data: null }
       setFormTemplateId(data.template_id ? String(data.template_id) : '')
       setDocumentMode(mode)
       setEditingDocumentId(item.id)
       setDocumentName(mode === 'copy' ? `${data.name} - Salinan` : data.name)
+      setEvidencePhotos([])
+      setEditingFolderName(folderData?.folder_name || '')
+      setEditingFolderPhotos(folderData?.photos || [])
       setTemplateAnalysis({ ...data.analysis, template_name: data.template_name })
       setAnalysisError('')
       setFormFields(data.fields)
@@ -835,7 +874,7 @@ function App() {
     window.location.href = mailtoUrl
     setDialog(null)
     setNotice(
-      `Aplikasi email dibuka untuk folder "${folderPreview.folder_name}". Lampirkan ZIP hasil unduhan sebelum mengirim.`,
+      `Draft email untuk "${folderPreview.folder_name}" dibuka, tetapi belum terkirim. Lampirkan ZIP lalu tekan Kirim di Gmail.`,
     )
   }
 
@@ -1371,6 +1410,47 @@ function App() {
                 />
               </label>
             )}
+            {documentMode === 'edit' && editingFolderName && (
+              <section className="space-y-3 rounded-xl border border-brand-200 bg-brand-50/50 p-4">
+                <div>
+                  <h3 className="font-semibold text-slate-900">Foto folder</h3>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Sudah ada {editingFolderPhotos.length} foto. Tambahkan beberapa foto sekaligus;
+                    maksimal 10 foto per folder.
+                  </p>
+                </div>
+                {editingFolderPhotos.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {editingFolderPhotos.map((photo) => (
+                      <img
+                        key={photo.name}
+                        src={apiAssetUrl(photo.url)}
+                        alt={photo.name}
+                        title={photo.name}
+                        className="h-16 w-16 rounded-lg border border-slate-200 bg-white object-cover"
+                      />
+                    ))}
+                  </div>
+                )}
+                <label className="block text-sm font-medium text-slate-700">
+                  Tambah foto dokumentasi / realisasi
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={(event) =>
+                      setEvidencePhotos(Array.from(event.target.files || []))
+                    }
+                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                  />
+                  <span className="mt-1 block text-xs font-normal text-slate-500">
+                    {evidencePhotos.length
+                      ? `${evidencePhotos.length} foto baru dipilih`
+                      : 'Maksimal 8 MB per foto dan total 30 MB untuk seluruh foto folder.'}
+                  </span>
+                </label>
+              </section>
+            )}
             {documentMode === 'create' && (
               <section className="space-y-4 rounded-xl border border-brand-200 bg-brand-50/50 p-4">
                 <div>
@@ -1754,7 +1834,7 @@ function App() {
                   {folderWorkflowError}
                 </p>
               )}
-              <div className="flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-4">
+              <div className="flex justify-end border-t border-slate-200 pt-4">
                 <button
                   type="button"
                   onClick={continueToEmail}

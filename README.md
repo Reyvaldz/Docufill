@@ -125,6 +125,8 @@ After creation, DocuFill opens a review step with the Excel fields, item rows,
 and photo previews. Continue to the email step without downloading first; use
 the adjacent **Unduh folder** action when you want the ZIP. Choose saved
 recipients, an optional email template, a subject, and an editable message.
+Editing a generated folder also lets you append multiple photos, within the
+same per-folder upload limits.
 Email templates are separate from Excel document templates. The
 `{document_name}` subject token fills with the generated pengajuan name, such as
 `Pengajuan Reimbursement - Reyval Danendra 06112026`. Manage recipient addresses
