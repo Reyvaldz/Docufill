@@ -7,15 +7,17 @@ import re
 import tempfile
 import uuid
 from datetime import datetime
+from io import BytesIO
 from logging.config import dictConfig
 from pathlib import Path
-from zipfile import BadZipFile
+from urllib.parse import quote
+from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
 from docxtpl import DocxTemplate
 from docx import Document as DocxDocument
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
@@ -61,6 +63,9 @@ dictConfig(
 
 app = FastAPI(title='DocuFill API', version='1.0.0')
 logger = logging.getLogger(__name__)
+MAX_FOLDER_PHOTOS = 10
+MAX_FOLDER_PHOTO_BYTES = 8 * 1024 * 1024
+MAX_FOLDER_PHOTOS_TOTAL_BYTES = 30 * 1024 * 1024
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -87,6 +92,10 @@ def startup_event() -> None:
             connection.execute(
                 text("ALTER TABLE templates ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'")
             )
+    document_columns = {column['name'] for column in inspect(engine).get_columns('documents')}
+    if 'folder_name' not in document_columns:
+        with engine.begin() as connection:
+            connection.execute(text('ALTER TABLE documents ADD COLUMN folder_name VARCHAR(120)'))
     seed_database(SessionLocal())
 
 
@@ -283,6 +292,7 @@ def list_documents(db: Session = Depends(get_db)) -> list[dict]:
             'created_at': document.created_at.isoformat() if document.created_at else None,
             'status': document.status,
             'file_path': document.file_path,
+            'folder_name': document.folder_name,
         }
         for document in documents
     ]
@@ -322,6 +332,17 @@ def delete_document(document_id: int, db: Session = Depends(get_db)) -> dict:
             raise HTTPException(
                 status_code=500,
                 detail='Document was deleted, but its generated file could not be removed.',
+            ) from error
+
+    folder_path = (GENERATED_DIR / f'document-{document.id}').resolve()
+    if folder_path.is_relative_to(GENERATED_DIR.resolve()) and folder_path.is_dir():
+        try:
+            shutil.rmtree(folder_path)
+        except OSError as error:
+            logger.exception('Could not remove document folder %s', folder_path)
+            raise HTTPException(
+                status_code=500,
+                detail='Document was deleted, but its photos could not be removed.',
             ) from error
 
     return {'message': 'Document deleted successfully'}
@@ -647,6 +668,169 @@ def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
     }
 
 
+def _folder_photo_extension(content: bytes) -> str | None:
+    if content.startswith(b'\xff\xd8\xff'):
+        return '.jpg'
+    if content.startswith(b'\x89PNG\r\n\x1a\n'):
+        return '.png'
+    if content.startswith(b'RIFF') and content[8:12] == b'WEBP':
+        return '.webp'
+    return None
+
+
+def _safe_folder_name(value: str) -> str:
+    name = value.strip()
+    if (
+        not name
+        or len(name) > 120
+        or re.search(r'[<>:"/\\|?*\x00-\x1f]', name)
+        or name.endswith(('.', ' '))
+        or name in {'.', '..'}
+        or re.match(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$', name, re.I)
+    ):
+        raise HTTPException(status_code=422, detail='Nama folder tidak valid.')
+    return name
+
+
+@app.post('/api/documents/generate-folder')
+async def generate_document_folder(
+    payload: str = Form(...),
+    folder_name: str = Form(...),
+    photos: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+) -> dict:
+    folder_name = _safe_folder_name(folder_name)
+    if len(photos) > MAX_FOLDER_PHOTOS:
+        raise HTTPException(
+            status_code=413,
+            detail=f'Maksimal {MAX_FOLDER_PHOTOS} foto untuk setiap folder.',
+        )
+    try:
+        document_payload = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail='Data dokumen tidak valid.') from error
+    if not isinstance(document_payload, dict):
+        raise HTTPException(status_code=422, detail='Data dokumen tidak valid.')
+
+    template = (
+        db.query(Template).filter(Template.id == document_payload.get('template_id')).first()
+        if document_payload.get('template_id') is not None
+        else None
+    )
+    if not template:
+        raise HTTPException(status_code=404, detail='Template not found')
+    if not template.file_name or Path(template.file_name).suffix.lower() != '.xlsx':
+        raise HTTPException(status_code=415, detail='Folder hanya mendukung template Excel .xlsx.')
+
+    photo_files = []
+    total_photo_bytes = 0
+    used_names = set()
+    for index, photo in enumerate(photos, start=1):
+        content = await photo.read(MAX_FOLDER_PHOTO_BYTES + 1)
+        if len(content) > MAX_FOLDER_PHOTO_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f'Ukuran setiap foto maksimal {MAX_FOLDER_PHOTO_BYTES // (1024 * 1024)} MB.',
+            )
+        total_photo_bytes += len(content)
+        if total_photo_bytes > MAX_FOLDER_PHOTOS_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail='Total ukuran foto maksimal 30 MB.')
+
+        extension = _folder_photo_extension(content)
+        if not extension:
+            raise HTTPException(
+                status_code=415,
+                detail='Foto harus berupa gambar JPG, PNG, atau WebP yang valid.',
+            )
+        original_name = Path((photo.filename or '').replace('\\', '/')).name
+        stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '_', Path(original_name).stem)
+        stem = stem.strip(' .')[:80] or f'foto-{index}'
+        safe_name = f'{stem}{extension}'
+        suffix = 2
+        while safe_name.casefold() in used_names:
+            safe_name = f'{stem} ({suffix}){extension}'
+            suffix += 1
+        used_names.add(safe_name.casefold())
+        photo_files.append((safe_name, content))
+
+    generated = generate_document(document_payload, db)
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == generated['id']).first()
+    if not document or not document.file_path:
+        raise HTTPException(status_code=500, detail='File Excel hasil tidak tersedia.')
+
+    document.folder_name = folder_name
+    db.commit()
+
+    photo_directory = GENERATED_DIR / f'document-{document.id}'
+    try:
+        photo_directory.mkdir(parents=True, exist_ok=True)
+        for photo_name, content in photo_files:
+            (photo_directory / photo_name).write_bytes(content)
+    except OSError as error:
+        logger.exception('Could not store photos for document %s', document.id)
+        shutil.rmtree(photo_directory, ignore_errors=True)
+        generated_name = document.file_path.removeprefix('/api/files/')
+        generated_path = (GENERATED_DIR / generated_name).resolve()
+        db.delete(document)
+        db.commit()
+        if (
+            Path(generated_name).name == generated_name
+            and generated_path.is_relative_to(GENERATED_DIR.resolve())
+            and generated_path.is_file()
+        ):
+            try:
+                generated_path.unlink()
+            except OSError:
+                logger.exception('Could not remove incomplete document file %s', generated_path)
+        raise HTTPException(status_code=500, detail='Foto tidak dapat disimpan.') from error
+
+    return {
+        **generated,
+        'folder_name': folder_name,
+        'photo_count': len(photo_files),
+        'message': 'Folder dokumen berhasil dibuat.',
+    }
+
+
+@app.get('/api/documents/{document_id}/download-folder')
+def download_document_folder(document_id: int, db: Session = Depends(get_db)) -> Response:
+    document = db.query(DocumentRecord).filter(DocumentRecord.id == document_id).first()
+    if not document or not document.folder_name:
+        raise HTTPException(status_code=404, detail='Folder dokumen tidak ditemukan.')
+    if not document.file_path or not document.file_path.startswith('/api/files/'):
+        raise HTTPException(status_code=404, detail='File Excel tidak ditemukan.')
+
+    generated_name = document.file_path.removeprefix('/api/files/')
+    workbook_path = (GENERATED_DIR / generated_name).resolve()
+    if (
+        Path(generated_name).name != generated_name
+        or not workbook_path.is_relative_to(GENERATED_DIR.resolve())
+        or not workbook_path.is_file()
+    ):
+        raise HTTPException(status_code=404, detail='File Excel tidak ditemukan.')
+
+    archive_buffer = BytesIO()
+    archive_root = document.folder_name
+    with ZipFile(archive_buffer, 'w', ZIP_DEFLATED) as archive:
+        archive.write(workbook_path, f'{archive_root}/{document.name}.xlsx')
+        photo_directory = (GENERATED_DIR / f'document-{document.id}').resolve()
+        if photo_directory.is_relative_to(GENERATED_DIR.resolve()) and photo_directory.is_dir():
+            for photo_path in photo_directory.iterdir():
+                if photo_path.is_file():
+                    archive.write(photo_path, f'{archive_root}/{photo_path.name}')
+
+    filename = f'{quote(archive_root, safe="")}.zip'
+    return Response(
+        content=archive_buffer.getvalue(),
+        media_type='application/zip',
+        headers={
+            'Content-Disposition': f"attachment; filename=\"document-folder.zip\"; filename*=UTF-8''{filename}",
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+        },
+    )
+
+
 @app.get('/api/dashboard')
 def dashboard(db: Session = Depends(get_db)) -> dict:
     total_templates = db.query(func.count(Template.id)).scalar() or 0
@@ -668,6 +852,7 @@ def dashboard(db: Session = Depends(get_db)) -> dict:
                 'created_at': document.created_at.isoformat() if document.created_at else None,
                 'status': document.status,
                 'file_path': document.file_path,
+                'folder_name': document.folder_name,
             }
             for document in latest_documents
         ],

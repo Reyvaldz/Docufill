@@ -38,6 +38,7 @@ class DocumentOut(BaseModel):
     created_at: Optional[datetime] = None
     status: str
     file_path: Optional[str] = None
+    folder_name: Optional[str] = None
 
     class Config:
         from_attributes = True

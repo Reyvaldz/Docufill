@@ -160,7 +160,6 @@ function App() {
   const [applicantName, setApplicantName] = useState('')
   const [applicationDate, setApplicationDate] = useState(getTodayDateInput)
   const [folderName, setFolderName] = useState('')
-  const [outputLocation, setOutputLocation] = useState(null)
   const [evidencePhotos, setEvidencePhotos] = useState([])
   const [templateAnalysis, setTemplateAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState('')
@@ -334,23 +333,6 @@ function App() {
     }
   }
 
-  const selectOutputLocation = async () => {
-    if (!window.showDirectoryPicker) {
-      setNotice('Pemilihan folder lokal didukung browser Chrome atau Edge pada koneksi aman.')
-      return
-    }
-
-    try {
-      const directory = await window.showDirectoryPicker({ mode: 'readwrite' })
-      setOutputLocation(directory)
-      setNotice(`Lokasi penyimpanan dipilih: ${directory.name}`)
-    } catch (error) {
-      if (error.name === 'AbortError') return
-      console.error('Unable to select local output folder', error)
-      setNotice(error.message || 'Lokasi penyimpanan tidak dapat dipilih.')
-    }
-  }
-
   const activeWallpaper =
     wallpaper.type === 'image'
       ? {
@@ -506,24 +488,31 @@ function App() {
     let outputName = documentName
     if (documentMode === 'create') {
       const trimmedFolderName = folderName.trim()
-      const reservedFolderName =
-        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmedFolderName)
-      if (!trimmedFolderName || !outputLocation) {
-        setNotice('Isi nama folder dan pilih lokasi penyimpanannya terlebih dahulu.')
+      if (!trimmedFolderName) {
+        setNotice('Isi nama folder dokumen terlebih dahulu.')
         return
       }
       if (
+        trimmedFolderName.length > 120 ||
         /[/\\<>:"|?*]/.test(trimmedFolderName) ||
         Array.from(trimmedFolderName).some((character) => character.charCodeAt(0) < 32) ||
         /[. ]$/.test(trimmedFolderName) ||
-        reservedFolderName ||
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmedFolderName) ||
         ['.', '..'].includes(trimmedFolderName)
       ) {
         setNotice('Nama folder berisi karakter yang tidak diizinkan.')
         return
       }
-      if (evidencePhotos.some((photo) => !photo.type.startsWith('image/'))) {
-        setNotice('Semua lampiran harus berupa file foto atau gambar.')
+      if (evidencePhotos.length > 10) {
+        setNotice('Maksimal 10 foto untuk setiap folder.')
+        return
+      }
+      if (evidencePhotos.some((photo) => photo.size > 8 * 1024 * 1024)) {
+        setNotice('Ukuran setiap foto maksimal 8 MB.')
+        return
+      }
+      if (evidencePhotos.reduce((total, photo) => total + photo.size, 0) > 30 * 1024 * 1024) {
+        setNotice('Total ukuran foto maksimal 30 MB.')
         return
       }
 
@@ -579,31 +568,6 @@ function App() {
       }
     }
 
-    if (documentMode === 'create') {
-      try {
-        let existingFolder
-        try {
-          existingFolder = await outputLocation.getDirectoryHandle(folderName.trim())
-        } catch (error) {
-          if (error.name !== 'NotFoundError') throw error
-        }
-        if (existingFolder) {
-          try {
-            await existingFolder.getFileHandle(`${outputName}.xlsx`)
-            if (!window.confirm(`File "${outputName}.xlsx" sudah ada. Timpa file tersebut?`)) {
-              return
-            }
-          } catch (error) {
-            if (error.name !== 'NotFoundError') throw error
-          }
-        }
-      } catch (error) {
-        console.error('Unable to check the selected output folder', error)
-        setNotice(error.message || 'Folder penyimpanan tidak dapat diperiksa.')
-        return
-      }
-    }
-
     setSaving(true)
     try {
       let generatedDocument
@@ -618,63 +582,22 @@ function App() {
           payload,
         )
       } else {
-        generatedDocument = await axios.post(`${API_URL}/documents/generate`, payload)
-      }
-
-      let folderSaveError = ''
-      if (documentMode === 'create') {
-        try {
-          const fileName = generatedDocument.data.file_path?.split('/').pop()
-          if (!fileName) throw new Error('Lokasi file Excel hasil tidak tersedia.')
-          const { data: workbook } = await axios.get(
-            `${API_URL}/files/${encodeURIComponent(fileName)}`,
-            { responseType: 'blob' },
-          )
-          const outputFolder = await outputLocation.getDirectoryHandle(folderName.trim(), {
-            create: true,
-          })
-          const workbookHandle = await outputFolder.getFileHandle(`${outputName}.xlsx`, {
-            create: true,
-          })
-          const workbookWriter = await workbookHandle.createWritable()
-          await workbookWriter.write(workbook)
-          await workbookWriter.close()
-
-          const writtenNames = new Set([`${outputName}.xlsx`])
-          for await (const [existingName] of outputFolder.entries()) {
-            writtenNames.add(existingName.toLowerCase())
-          }
-          for (const photo of evidencePhotos) {
-            const extensionIndex = photo.name.lastIndexOf('.')
-            const baseName =
-              extensionIndex > 0 ? photo.name.slice(0, extensionIndex) : photo.name
-            const extension = extensionIndex > 0 ? photo.name.slice(extensionIndex) : ''
-            let photoName = photo.name
-            let suffix = 2
-            while (writtenNames.has(photoName.toLowerCase())) {
-              photoName = `${baseName} (${suffix})${extension}`
-              suffix += 1
-            }
-            writtenNames.add(photoName.toLowerCase())
-            const photoHandle = await outputFolder.getFileHandle(photoName, { create: true })
-            const photoWriter = await photoHandle.createWritable()
-            await photoWriter.write(photo)
-            await photoWriter.close()
-          }
-        } catch (error) {
-          console.error('Unable to save generated folder on this device', error)
-          folderSaveError = error.message || 'folder lokal tidak dapat disimpan.'
-        }
+        const formData = new FormData()
+        formData.append('payload', JSON.stringify(payload))
+        formData.append('folder_name', folderName.trim())
+        evidencePhotos.forEach((photo) => formData.append('photos', photo))
+        generatedDocument = await axios.post(
+          `${API_URL}/documents/generate-folder`,
+          formData,
+        )
       }
       await refreshData()
       setDialog(null)
-      setNotice(folderSaveError
-        ? `Dokumen sudah dibuat di DocuFill, tetapi folder lokal gagal disimpan: ${folderSaveError}`
-        : documentMode === 'edit'
-          ? 'Dokumen berhasil diperbarui.'
-          : documentMode === 'copy'
-            ? 'Salinan dokumen berhasil dibuat.'
-            : `Folder "${folderName.trim()}" beserta Excel dan foto berhasil disimpan.`,
+      setNotice(documentMode === 'edit'
+        ? 'Dokumen berhasil diperbarui.'
+        : documentMode === 'copy'
+          ? 'Salinan dokumen berhasil dibuat.'
+          : `Folder "${generatedDocument.data.folder_name}" berhasil dibuat dan siap diunduh.`,
       )
     } catch (error) {
       console.error('Unable to generate document', error)
@@ -783,6 +706,14 @@ function App() {
   }
 
   const downloadDocument = (item) => {
+    if (item.folder_name) {
+      window.open(
+        `${API_URL}/documents/${item.id}/download-folder`,
+        '_blank',
+        'noopener,noreferrer',
+      )
+      return
+    }
     const fileName = item.file_path?.match(/^\/api\/files\/(.+)$/)?.[1]
     if (!fileName) {
       setNotice('File untuk dokumen ini tidak tersedia untuk diunduh.')
@@ -866,7 +797,7 @@ function App() {
                     className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-brand-600/20 hover:bg-brand-700"
                   >
                     <Plus size={16} />
-                    New document
+                    Buat folder
                   </button>
                 )}
                 {activeSection === 'templates' && (
@@ -1111,10 +1042,10 @@ function App() {
             {documentMode === 'create' && (
               <section className="space-y-4 rounded-xl border border-brand-200 bg-brand-50/50 p-4">
                 <div>
-                  <h3 className="font-semibold text-slate-900">Folder pengajuan</h3>
+                  <h3 className="font-semibold text-slate-900">Folder dokumen</h3>
                   <p className="mt-1 text-xs text-slate-600">
-                    Pilih folder induk di perangkat ini. DocuFill akan membuat folder baru di
-                    dalamnya, lalu menyimpan Excel dan foto bukti di sana.
+                    Folder disimpan di DocuFill, bukan di perangkat ini. Setelah dibuat, unduh
+                    sebagai ZIP berisi file Excel dan foto dokumentasi.
                   </p>
                 </div>
                 {Object.entries({
@@ -1142,32 +1073,18 @@ function App() {
                   Nama folder
                   <input
                     required
+                    maxLength={120}
                     value={folderName}
                     onChange={(event) => setFolderName(event.target.value)}
                     placeholder="Contoh: Pengajuan Reyval November"
                     className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                   />
                 </label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={selectOutputLocation}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-                  >
-                    Pilih lokasi penyimpanan
-                  </button>
-                  <span className="text-sm text-slate-600">
-                    {outputLocation?.name || 'Belum ada lokasi dipilih'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Pemilihan folder lokal memerlukan Chrome atau Edge pada koneksi aman.
-                </p>
                 <label className="block text-sm font-medium text-slate-700">
-                  Foto bukti (opsional)
+                  Foto dokumentasi / realisasi (opsional)
                   <input
                     type="file"
-                    accept="image/*"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                     multiple
                     onChange={(event) =>
                       setEvidencePhotos(Array.from(event.target.files || []))
@@ -1177,7 +1094,7 @@ function App() {
                   <span className="mt-1 block text-xs font-normal text-slate-500">
                     {evidencePhotos.length
                       ? `${evidencePhotos.length} foto dipilih`
-                      : 'Foto akan disimpan bersama file Excel di folder pengajuan.'}
+                      : 'Maksimal 10 foto, 8 MB per foto dan total 30 MB. Foto tersimpan di DocuFill.'}
                   </span>
                 </label>
                 <p className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700">
@@ -1759,7 +1676,14 @@ function DocumentTable({
         <tbody>
           {documents.map((item) => (
             <tr key={item.id} className="border-b border-slate-100 last:border-b-0">
-              <td className="py-3 pr-4 font-medium text-slate-800">{item.name}</td>
+              <td className="py-3 pr-4 font-medium text-slate-800">
+                {item.name}
+                {item.folder_name && (
+                  <span className="mt-1 block text-xs font-normal text-slate-500">
+                    Folder: {item.folder_name}
+                  </span>
+                )}
+              </td>
               <td className="py-3 pr-4 text-slate-600">{item.category || 'Finance'}</td>
               <td className="py-3 pr-4 text-slate-600">{item.template_name || 'Reimbursement Form'}</td>
               <td className="py-3 pr-4">
@@ -1777,7 +1701,7 @@ function DocumentTable({
                     className="inline-flex items-center gap-2 text-brand-700"
                   >
                     <Download size={14} />
-                    Download
+                    {item.folder_name ? 'Unduh folder' : 'Download'}
                   </button>
                   {item.file_path?.toLowerCase().endsWith('.xlsx') && (
                     <>

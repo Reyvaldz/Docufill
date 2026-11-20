@@ -44,6 +44,7 @@ class DocumentRecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(String(20), default='generated')
     file_path = Column(String(255), nullable=True)
+    folder_name = Column(String(120), nullable=True)
     template_id = Column(Integer, ForeignKey('templates.id'), nullable=True)
 
     template = relationship('Template', back_populates='documents')

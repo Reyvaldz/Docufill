@@ -112,13 +112,14 @@ Generated Excel documents can be reopened with **Edit** or started as a
 pre-filled **Copy** from either document list. Editing updates the existing
 generated file; copying creates a separate document and file.
 
-When creating a new Excel document in the browser, enter a folder name, choose
-a parent location on the device, and optionally select evidence photos. DocuFill
-creates that folder with the Excel file and photos inside it. The Excel filename
+When creating a new Excel document in the browser, enter a folder name and
+optionally select JPG, PNG, or WebP documentation/realization photos. DocuFill
+stores the folder and its files in the application's `DATA_DIR`; it does not
+request access to a folder on the user's device. Each folder can be downloaded
+from **Documents** as a ZIP containing the Excel file and selected photos.
+Uploads allow up to 10 photos, 8 MB each and 30 MB total. The Excel filename
 uses `Pengajuan (tujuan) - (nama) (DDMMYYYY).xlsx`, for example
-`Pengajuan Reimbursement - Reyval Danendra 06112026.xlsx`. Selecting a local
-folder requires Chrome or Edge on a secure connection (localhost is supported);
-the generated document remains available in DocuFill as well.
+`Pengajuan Reimbursement - Reyval Danendra 06112026.xlsx`.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance
