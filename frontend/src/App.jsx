@@ -190,7 +190,7 @@ function App() {
   const [emailTemplateForm, setEmailTemplateForm] = useState({
     name: '',
     recipients: [],
-    subject: '',
+    subject: '{document_name}',
     body: '',
   })
   const [editingEmailTemplateId, setEditingEmailTemplateId] = useState(null)
@@ -809,8 +809,7 @@ function App() {
       link.click()
       link.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setFolderWorkflowStep('email')
-      setNotice('ZIP folder berhasil disiapkan dan diunduh. Lanjutkan untuk mengirim lewat email.')
+      setNotice(`ZIP folder "${folderPreview.folder_name}" berhasil diunduh.`)
     } catch (error) {
       console.error('Unable to download document folder', error)
       setFolderWorkflowError(error.response?.data?.detail || 'ZIP folder tidak dapat dibuat.')
@@ -844,8 +843,21 @@ function App() {
     const selected = emailTemplates.find((template) => String(template.id) === templateId)
     setSelectedEmailTemplateId(templateId)
     setSelectedEmailRecipients(selected?.recipients || [])
-    setEmailSubject(selected?.subject || '')
+    let subject = selected?.subject || ''
+    if (selected && folderPreview?.document_name) {
+      subject = subject.includes('{document_name}')
+        ? subject.replaceAll('{document_name}', folderPreview.document_name)
+        : subject.includes(folderPreview.document_name)
+          ? subject
+          : `${subject.trim()} - ${folderPreview.document_name}`
+    }
+    setEmailSubject(subject)
     setEmailBody(selected?.body || '')
+  }
+
+  const continueToEmail = () => {
+    setFolderWorkflowStep('email')
+    setEmailSubject((current) => current.trim() || folderPreview?.document_name || '')
   }
 
   const addEmailRecipient = async (event) => {
@@ -888,7 +900,7 @@ function App() {
     setEmailTemplateForm({
       name: template?.name || '',
       recipients: template?.recipients || [],
-      subject: template?.subject || '',
+      subject: template?.subject || '{document_name}',
       body: template?.body || '',
     })
     setDialog('email-template')
@@ -1742,39 +1754,23 @@ function App() {
                   {folderWorkflowError}
                 </p>
               )}
-              <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-4">
                 <button
                   type="button"
-                  onClick={() => setDialog(null)}
+                  onClick={continueToEmail}
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium"
                 >
-                  Tutup
-                </button>
-                <button
-                  type="button"
-                  disabled={folderZipBusy}
-                  onClick={downloadFolderZip}
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  <Download size={15} />
-                  {folderZipBusy ? 'Menyiapkan ZIP…' : 'ZIP & lanjut ke email'}
+                  Lanjut ke email
                 </button>
               </div>
             </div>
           ) : (
             <form onSubmit={openFolderEmailDraft} className="space-y-4">
               <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
-                ZIP <strong>{folderPreview.folder_name}.zip</strong> sudah diunduh. Tombol di bawah
-                membuka aplikasi email dengan penerima, subjek, dan isi yang diisi. Lampirkan ZIP
-                secara manual sebelum mengirim.
+                ZIP <strong>{folderPreview.folder_name}.zip</strong> belum tentu sudah diunduh.
+                Unduh ZIP, lalu buka aplikasi email. Penerima, subjek, dan isi akan diisi; lampirkan
+                ZIP secara manual sebelum mengirim.
               </p>
-              <a
-                href={`${API_URL}/documents/${folderPreview.id}/download-folder`}
-                className="inline-flex items-center gap-2 text-sm font-medium text-brand-700"
-              >
-                <Download size={15} />
-                Unduh ulang ZIP
-              </a>
               {folderWorkflowError && (
                 <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
                   {folderWorkflowError}
@@ -1836,6 +1832,9 @@ function App() {
 
               <label className="block text-sm font-medium text-slate-700">
                 Subjek
+                <span className="mt-1 block text-xs font-normal text-slate-500">
+                  Gunakan {'{document_name}'} agar otomatis berisi tujuan, nama, dan tanggal pengajuan.
+                </span>
                 <input
                   required
                   maxLength={255}
@@ -1864,18 +1863,29 @@ function App() {
                 >
                   Kembali periksa folder
                 </button>
-                <button
-                  type="submit"
-                  disabled={
-                    !selectedEmailRecipients.length ||
-                    !emailSubject.trim() ||
-                    !emailBody.trim()
-                  }
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  <Send size={15} />
-                  Buka aplikasi email
-                </button>
+                <div className="flex flex-wrap justify-end gap-3">
+                  <button
+                    type="submit"
+                    disabled={
+                      !selectedEmailRecipients.length ||
+                      !emailSubject.trim() ||
+                      !emailBody.trim()
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    <Send size={15} />
+                    Buka aplikasi email
+                  </button>
+                  <button
+                    type="button"
+                    disabled={folderZipBusy}
+                    onClick={downloadFolderZip}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50"
+                  >
+                    <Download size={15} />
+                    {folderZipBusy ? 'Menyiapkan ZIP…' : 'Unduh folder'}
+                  </button>
+                </div>
               </div>
             </form>
           )}
@@ -1928,6 +1938,9 @@ function App() {
             </fieldset>
             <label className="block text-sm font-medium text-slate-700">
               Subjek
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                Token {'{document_name}'} akan diganti otomatis, misalnya Pengajuan Reimbursement - Reyval Danendra 06112026.
+              </span>
               <input
                 required
                 maxLength={255}

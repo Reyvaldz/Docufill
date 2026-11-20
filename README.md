@@ -122,13 +122,16 @@ uses `Pengajuan (tujuan) - (nama) (DDMMYYYY).xlsx`, for example
 `Pengajuan Reimbursement - Reyval Danendra 06112026.xlsx`.
 
 After creation, DocuFill opens a review step with the Excel fields, item rows,
-and photo previews. Continue to create/download the ZIP, then choose saved
+and photo previews. Continue to the email step without downloading first; use
+the adjacent **Unduh folder** action when you want the ZIP. Choose saved
 recipients, an optional email template, a subject, and an editable message.
-Email templates are separate from Excel document templates. Manage recipient
-addresses and email templates from **Email Templates**. **Buka aplikasi email**
-opens the user's configured mail app with the selected recipients, subject, and
-message; attach the downloaded ZIP manually before sending. This flow does not
-store or request email credentials.
+Email templates are separate from Excel document templates. The
+`{document_name}` subject token fills with the generated pengajuan name, such as
+`Pengajuan Reimbursement - Reyval Danendra 06112026`. Manage recipient addresses
+and email templates from **Email Templates**. **Buka aplikasi email** opens the
+user's configured mail app with the selected recipients, subject, and message;
+attach the downloaded ZIP manually before sending. This flow does not store or
+request email credentials.
 
 DocuFill currently has no user sign-in. Docker Compose binds to `127.0.0.1` by
 default; set `APP_BIND_ADDRESS` only if you intentionally need network access
