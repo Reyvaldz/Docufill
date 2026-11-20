@@ -3,8 +3,8 @@
 DocuFill is a personal document-generation application with a FastAPI backend,
 SQLite storage, and a React + Vite frontend. Upload an Excel template, review
 the fields detected in it, fill in the form, and download a generated copy.
-The interface keeps Dashboard, Templates, recent Documents, and All Documents
-on separate pages accessible from the navigation menu.
+The interface keeps Dashboard, Templates, Documents, All Documents, and Email
+Templates on separate pages accessible from the navigation menu.
 Choose **Wallpaper** to select a built-in background or upload a JPG, PNG, or
 WebP image. The choice is saved locally in the current browser and is not
 uploaded to the backend or shared across devices.
@@ -18,6 +18,9 @@ The backend reads environment variables in `backend/app/config.py`:
 | `DATA_DIR` | Parent directory for the SQLite database and application files. The app creates `templates/`, `generated/`, and `attachments/` here. Relative paths are based on the project root. | `project-root/data` |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed by CORS. | `*` |
 | `MAX_UPLOAD_MB` | Maximum accepted template upload size. Larger files receive HTTP 413. | `10` |
+| `EMAIL_SMTP_HOST` / `EMAIL_SMTP_PORT` | SMTP server used to send folder ZIPs. Gmail defaults to `smtp.gmail.com:587`. | Gmail SMTP |
+| `EMAIL_SMTP_USERNAME` / `EMAIL_SMTP_PASSWORD` | Gmail sender account and Google App Password. Configure these only on the server. | unset |
+| `EMAIL_FROM` | Sender address shown on outgoing email. | `EMAIL_SMTP_USERNAME` |
 
 The frontend reads `VITE_API_URL`; it defaults to `/api`, suitable when a reverse
 proxy routes `/api` to the backend. Set it to the API's browser-accessible URL
@@ -59,7 +62,7 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### Frontend
@@ -120,6 +123,23 @@ from **Documents** as a ZIP containing the Excel file and selected photos.
 Uploads allow up to 10 photos, 8 MB each and 30 MB total. The Excel filename
 uses `Pengajuan (tujuan) - (nama) (DDMMYYYY).xlsx`, for example
 `Pengajuan Reimbursement - Reyval Danendra 06112026.xlsx`.
+
+After creation, DocuFill opens a review step with the Excel fields, item rows,
+and photo previews. Continue to create/download the ZIP, then choose saved
+recipients, an optional email template, a subject, and an editable message.
+Email templates are separate from Excel document templates. Manage recipient
+addresses and email templates from **Email Templates**.
+
+To send email through Gmail, enable 2-Step Verification and create a Google App
+Password for the server. Set `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, and
+optionally `EMAIL_FROM` in the server's environment or deployment secrets.
+Never put an account password or App Password in the browser or source code.
+When SMTP credentials are absent, email sending remains disabled and reports a
+configuration error. DocuFill currently has no user sign-in; only enable SMTP
+on a trusted/private deployment, and do not expose the app publicly without
+adding an authentication layer. Docker Compose binds to `127.0.0.1` by default;
+set `APP_BIND_ADDRESS` only if you intentionally need network access and have
+protected the app with suitable network controls and authentication.
 
 `samples/sample-reimbursement.xlsx` demonstrates this layout. Upload it from
 the Template library in the web app, or with the API (the seeded Finance

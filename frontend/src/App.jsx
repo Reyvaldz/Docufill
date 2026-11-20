@@ -6,18 +6,22 @@ import {
   CircleDollarSign,
   Copy as CopyIcon,
   Download,
+  Eye,
   FileText,
   Files,
   FolderKanban,
   Image,
   LayoutGrid,
+  Mail,
   Pencil,
   Plus,
+  Send,
   Trash2,
   X,
 } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
+const apiAssetUrl = (path) => `${API_URL.replace(/\/api\/?$/, '')}${path}`
 
 const defaultDashboard = {
   total_templates: 0,
@@ -39,6 +43,7 @@ const navigation = [
   { label: 'Templates', icon: FileText, target: 'templates' },
   { label: 'Documents', icon: FolderKanban, target: 'documents' },
   { label: 'All Documents', icon: Files, target: 'all-documents' },
+  { label: 'Email Templates', icon: Mail, target: 'email-templates' },
 ]
 
 const pageTitles = {
@@ -46,6 +51,7 @@ const pageTitles = {
   templates: 'Templates',
   documents: 'Documents',
   'all-documents': 'All Documents',
+  'email-templates': 'Email Templates',
 }
 
 const WALLPAPER_STORAGE_KEY = 'docufill.wallpaper'
@@ -142,6 +148,8 @@ function App() {
   const [templates, setTemplates] = useState([])
   const [documents, setDocuments] = useState([])
   const [categories, setCategories] = useState([])
+  const [emailRecipients, setEmailRecipients] = useState([])
+  const [emailTemplates, setEmailTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeSection, setActiveSection] = useState('dashboard')
   const [dialog, setDialog] = useState(null)
@@ -170,6 +178,23 @@ function App() {
   const [templateFieldAnalysis, setTemplateFieldAnalysis] = useState(null)
   const [templateAnalysisError, setTemplateAnalysisError] = useState('')
   const [templateCustomFields, setTemplateCustomFields] = useState([])
+  const [folderPreview, setFolderPreview] = useState(null)
+  const [folderWorkflowStep, setFolderWorkflowStep] = useState('review')
+  const [folderWorkflowError, setFolderWorkflowError] = useState('')
+  const [selectedEmailRecipients, setSelectedEmailRecipients] = useState([])
+  const [selectedEmailTemplateId, setSelectedEmailTemplateId] = useState('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBody, setEmailBody] = useState('')
+  const [folderZipBusy, setFolderZipBusy] = useState(false)
+  const [sendingFolderEmail, setSendingFolderEmail] = useState(false)
+  const [newRecipientEmail, setNewRecipientEmail] = useState('')
+  const [emailTemplateForm, setEmailTemplateForm] = useState({
+    name: '',
+    recipients: [],
+    subject: '',
+    body: '',
+  })
+  const [editingEmailTemplateId, setEditingEmailTemplateId] = useState(null)
 
   const spreadsheetTemplates = templates.filter((template) =>
     template.file_name?.toLowerCase().endsWith('.xlsx'),
@@ -203,20 +228,30 @@ function App() {
   }
 
   const refreshData = async () => {
-    const [dashboardResponse, templatesResponse, documentsResponse, categoriesResponse] =
-      await Promise.all([
-        axios.get(`${API_URL}/dashboard`),
-        axios.get(`${API_URL}/templates`),
-        axios.get(`${API_URL}/documents`),
-        axios.get(`${API_URL}/categories`),
-      ])
+    const [
+      dashboardResponse,
+      templatesResponse,
+      documentsResponse,
+      categoriesResponse,
+      emailRecipientsResponse,
+      emailTemplatesResponse,
+    ] = await Promise.all([
+      axios.get(`${API_URL}/dashboard`),
+      axios.get(`${API_URL}/templates`),
+      axios.get(`${API_URL}/documents`),
+      axios.get(`${API_URL}/categories`),
+      axios.get(`${API_URL}/email/recipients`),
+      axios.get(`${API_URL}/email/templates`),
+    ])
 
     if (
       !dashboardResponse.data ||
       typeof dashboardResponse.data !== 'object' ||
       !Array.isArray(templatesResponse.data) ||
       !Array.isArray(documentsResponse.data) ||
-      !Array.isArray(categoriesResponse.data)
+      !Array.isArray(categoriesResponse.data) ||
+      !Array.isArray(emailRecipientsResponse.data) ||
+      !Array.isArray(emailTemplatesResponse.data)
     ) {
       throw new Error('API mengembalikan data dengan format yang tidak valid.')
     }
@@ -225,6 +260,8 @@ function App() {
     setTemplates(templatesResponse.data)
     setDocuments(documentsResponse.data)
     setCategories(categoriesResponse.data)
+    setEmailRecipients(emailRecipientsResponse.data)
+    setEmailTemplates(emailTemplatesResponse.data)
   }
 
   useEffect(() => {
@@ -592,13 +629,27 @@ function App() {
         )
       }
       await refreshData()
-      setDialog(null)
-      setNotice(documentMode === 'edit'
-        ? 'Dokumen berhasil diperbarui.'
-        : documentMode === 'copy'
-          ? 'Salinan dokumen berhasil dibuat.'
-          : `Folder "${generatedDocument.data.folder_name}" berhasil dibuat dan siap diunduh.`,
-      )
+      if (documentMode === 'create') {
+        const { data: preview } = await axios.get(
+          `${API_URL}/documents/${generatedDocument.data.id}/folder-preview`,
+        )
+        setFolderPreview(preview)
+        setFolderWorkflowStep('review')
+        setFolderWorkflowError('')
+        setSelectedEmailRecipients([])
+        setSelectedEmailTemplateId('')
+        setEmailSubject('')
+        setEmailBody('')
+        setDialog('folder-workflow')
+        setNotice(`Folder "${preview.folder_name}" dibuat. Periksa Excel dan foto sebelum melanjutkan.`)
+      } else {
+        setDialog(null)
+        setNotice(
+          documentMode === 'edit'
+            ? 'Dokumen berhasil diperbarui.'
+            : 'Salinan dokumen berhasil dibuat.',
+        )
+      }
     } catch (error) {
       console.error('Unable to generate document', error)
       setNotice(error.response?.data?.detail || 'Dokumen gagal dibuat. Silakan coba lagi.')
@@ -722,6 +773,166 @@ function App() {
     window.open(`${API_URL}/files/${encodeURIComponent(fileName)}`, '_blank', 'noopener,noreferrer')
   }
 
+  const openFolderReview = async (item) => {
+    setOpeningDocumentId(item.id)
+    try {
+      const { data } = await axios.get(`${API_URL}/documents/${item.id}/folder-preview`)
+      setFolderPreview(data)
+      setFolderWorkflowStep('review')
+      setFolderWorkflowError('')
+      setSelectedEmailRecipients([])
+      setSelectedEmailTemplateId('')
+      setEmailSubject('')
+      setEmailBody('')
+      setDialog('folder-workflow')
+    } catch (error) {
+      console.error('Unable to preview document folder', error)
+      setNotice(error.response?.data?.detail || 'Isi folder tidak dapat dimuat.')
+    } finally {
+      setOpeningDocumentId(null)
+    }
+  }
+
+  const downloadFolderZip = async () => {
+    if (!folderPreview) return
+    setFolderZipBusy(true)
+    setFolderWorkflowError('')
+    try {
+      const { data } = await axios.get(
+        `${API_URL}/documents/${folderPreview.id}/download-folder`,
+        { responseType: 'blob' },
+      )
+      const url = URL.createObjectURL(data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${folderPreview.folder_name}.zip`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setFolderWorkflowStep('email')
+      setNotice('ZIP folder berhasil disiapkan dan diunduh. Lanjutkan untuk mengirim lewat email.')
+    } catch (error) {
+      console.error('Unable to download document folder', error)
+      setFolderWorkflowError(error.response?.data?.detail || 'ZIP folder tidak dapat dibuat.')
+    } finally {
+      setFolderZipBusy(false)
+    }
+  }
+
+  const sendFolderEmail = async (event) => {
+    event.preventDefault()
+    if (!folderPreview || !selectedEmailRecipients.length) {
+      setNotice('Pilih setidaknya satu alamat email penerima.')
+      return
+    }
+    setSendingFolderEmail(true)
+    setFolderWorkflowError('')
+    try {
+      await axios.post(`${API_URL}/documents/${folderPreview.id}/send-email`, {
+        recipients: selectedEmailRecipients,
+        subject: emailSubject,
+        body: emailBody,
+      })
+      setDialog(null)
+      setNotice(`Folder "${folderPreview.folder_name}" berhasil dikirim melalui email.`)
+    } catch (error) {
+      console.error('Unable to send document folder email', error)
+      setFolderWorkflowError(error.response?.data?.detail || 'Email folder gagal dikirim.')
+    } finally {
+      setSendingFolderEmail(false)
+    }
+  }
+
+  const selectEmailTemplate = (templateId) => {
+    const selected = emailTemplates.find((template) => String(template.id) === templateId)
+    setSelectedEmailTemplateId(templateId)
+    setSelectedEmailRecipients(selected?.recipients || [])
+    setEmailSubject(selected?.subject || '')
+    setEmailBody(selected?.body || '')
+  }
+
+  const addEmailRecipient = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await axios.post(`${API_URL}/email/recipients`, { email: newRecipientEmail })
+      setNewRecipientEmail('')
+      await refreshData()
+      setNotice('Alamat email berhasil ditambahkan.')
+    } catch (error) {
+      console.error('Unable to save email recipient', error)
+      setNotice(error.response?.data?.detail || 'Alamat email gagal ditambahkan.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteEmailRecipient = async (recipient) => {
+    if (!window.confirm(`Hapus alamat email "${recipient.email}" dari pilihan?`)) return
+    try {
+      await axios.delete(`${API_URL}/email/recipients/${recipient.id}`)
+      setSelectedEmailRecipients((current) =>
+        current.filter((email) => email !== recipient.email),
+      )
+      setEmailTemplateForm((current) => ({
+        ...current,
+        recipients: current.recipients.filter((email) => email !== recipient.email),
+      }))
+      await refreshData()
+      setNotice('Alamat email berhasil dihapus.')
+    } catch (error) {
+      console.error('Unable to delete email recipient', error)
+      setNotice(error.response?.data?.detail || 'Alamat email gagal dihapus.')
+    }
+  }
+
+  const openEmailTemplateForm = (template = null) => {
+    setEditingEmailTemplateId(template?.id || null)
+    setEmailTemplateForm({
+      name: template?.name || '',
+      recipients: template?.recipients || [],
+      subject: template?.subject || '',
+      body: template?.body || '',
+    })
+    setDialog('email-template')
+  }
+
+  const saveEmailTemplate = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      if (editingEmailTemplateId) {
+        await axios.put(
+          `${API_URL}/email/templates/${editingEmailTemplateId}`,
+          emailTemplateForm,
+        )
+      } else {
+        await axios.post(`${API_URL}/email/templates`, emailTemplateForm)
+      }
+      await refreshData()
+      setDialog(null)
+      setNotice('Template email berhasil disimpan.')
+    } catch (error) {
+      console.error('Unable to save email template', error)
+      setNotice(error.response?.data?.detail || 'Template email gagal disimpan.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const deleteEmailTemplate = async (template) => {
+    if (!window.confirm(`Hapus template email "${template.name}"?`)) return
+    try {
+      await axios.delete(`${API_URL}/email/templates/${template.id}`)
+      await refreshData()
+      setNotice('Template email berhasil dihapus.')
+    } catch (error) {
+      console.error('Unable to delete email template', error)
+      setNotice(error.response?.data?.detail || 'Template email gagal dihapus.')
+    }
+  }
+
   return (
     <div className="min-h-screen text-slate-800" style={activeWallpaper}>
       <div className="flex min-h-screen">
@@ -808,6 +1019,16 @@ function App() {
                   >
                     <Plus size={16} />
                     New template
+                  </button>
+                )}
+                {activeSection === 'email-templates' && (
+                  <button
+                    type="button"
+                    onClick={() => openEmailTemplateForm()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-brand-600/20 hover:bg-brand-700"
+                  >
+                    <Plus size={16} />
+                    Template email
                   </button>
                 )}
               </div>
@@ -967,9 +1188,111 @@ function App() {
                 onDelete={deleteDocument}
                 onEdit={(item) => openStoredDocument(item, 'edit')}
                 onCopy={(item) => openStoredDocument(item, 'copy')}
+                onPreviewFolder={openFolderReview}
                 deletingDocumentId={deletingDocumentId}
                 openingDocumentId={openingDocumentId}
               />
+            </section>
+          ) : activeSection === 'email-templates' ? (
+            <section className="space-y-6">
+              <section className="card">
+                <div className="mb-5">
+                  <h3 className="text-xl font-semibold text-slate-900">Alamat penerima</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Simpan alamat yang sering digunakan. Alamat dapat dipilih saat mengirim folder.
+                  </p>
+                </div>
+                <form onSubmit={addEmailRecipient} className="mb-5 flex flex-wrap gap-3">
+                  <input
+                    type="email"
+                    required
+                    maxLength={320}
+                    value={newRecipientEmail}
+                    onChange={(event) => setNewRecipientEmail(event.target.value)}
+                    placeholder="nama@contoh.com"
+                    className="min-w-64 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    Tambah alamat
+                  </button>
+                </form>
+                {emailRecipients.length ? (
+                  <ul className="divide-y divide-slate-100">
+                    {emailRecipients.map((recipient) => (
+                      <li
+                        key={recipient.id}
+                        className="flex items-center justify-between gap-3 py-3 text-sm"
+                      >
+                        <span className="break-all text-slate-700">{recipient.email}</span>
+                        <button
+                          type="button"
+                          onClick={() => deleteEmailRecipient(recipient)}
+                          className="inline-flex shrink-0 items-center gap-1 text-red-700"
+                        >
+                          <Trash2 size={14} />
+                          Hapus
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">Belum ada alamat penerima tersimpan.</p>
+                )}
+              </section>
+
+              <section className="card">
+                <div className="mb-5">
+                  <h3 className="text-xl font-semibold text-slate-900">Template email</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Template menyimpan penerima, subjek, dan isi email. Semua isian tetap bisa diedit sebelum dikirim.
+                  </p>
+                </div>
+                {emailTemplates.length ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {emailTemplates.map((template) => (
+                      <article
+                        key={template.id}
+                        className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <h4 className="font-semibold text-slate-900">{template.name}</h4>
+                        <p className="mt-2 text-xs text-slate-500">
+                          Kepada: {template.recipients.join(', ')}
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-slate-700">
+                          Subjek: {template.subject}
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">
+                          {template.body}
+                        </p>
+                        <div className="mt-4 flex gap-4 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => openEmailTemplateForm(template)}
+                            className="inline-flex items-center gap-1.5 font-medium text-brand-700"
+                          >
+                            <Pencil size={14} />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteEmailTemplate(template)}
+                            className="inline-flex items-center gap-1.5 font-medium text-red-700"
+                          >
+                            <Trash2 size={14} />
+                            Hapus
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">Belum ada template email.</p>
+                )}
+              </section>
             </section>
           ) : (
             <section className="card">
@@ -980,6 +1303,7 @@ function App() {
                   onDelete={deleteDocument}
                   onEdit={(item) => openStoredDocument(item, 'edit')}
                   onCopy={(item) => openStoredDocument(item, 'copy')}
+                  onPreviewFolder={openFolderReview}
                   deletingDocumentId={deletingDocumentId}
                   openingDocumentId={openingDocumentId}
                 />
@@ -1298,6 +1622,337 @@ function App() {
               submitLabel={
                 documentMode === 'edit' ? 'Simpan perubahan' : documentMode === 'copy' ? 'Buat salinan' : 'Generate'
               }
+            />
+          </form>
+        </Modal>
+      )}
+
+      {dialog === 'folder-workflow' && folderPreview && (
+        <Modal
+          title={folderWorkflowStep === 'review' ? 'Periksa isi folder' : 'Kirim folder lewat email'}
+          onClose={() => setDialog(null)}
+          wide
+        >
+          {folderWorkflowStep === 'review' ? (
+            <div className="space-y-5">
+              <div className="rounded-xl bg-brand-50 p-4">
+                <p className="text-sm text-slate-600">Folder</p>
+                <h3 className="text-lg font-semibold text-slate-900">{folderPreview.folder_name}</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Dokumen: {folderPreview.document_name} · Template: {folderPreview.template_name} · Sheet: {folderPreview.sheet_name}
+                </p>
+                <a
+                  href={apiAssetUrl(folderPreview.excel_url)}
+                  className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-700"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download size={15} />
+                  Unduh / buka Excel
+                </a>
+              </div>
+
+              <section className="space-y-3">
+                <h3 className="font-semibold text-slate-900">Isi Excel</h3>
+                {folderPreview.fields.length > 0 && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {folderPreview.fields.map((field) => (
+                      <div key={field.key} className="rounded-lg border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">{field.label}</p>
+                        <p className="mt-1 break-words text-sm text-slate-800">{field.value || '—'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {folderPreview.custom_fields.length > 0 && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {folderPreview.custom_fields.map((field) => (
+                      <div key={field.key} className="rounded-lg border border-slate-200 p-3">
+                        <p className="text-xs text-slate-500">{field.label}</p>
+                        <p className="mt-1 break-words text-sm text-slate-800">{field.value || '—'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {folderPreview.headers.length > 0 && (
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-slate-600">
+                        <tr>
+                          {folderPreview.headers.map((header) => (
+                            <th key={header.key} className="px-3 py-2 font-medium">
+                              {header.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {folderPreview.items.map((row, rowIndex) => (
+                          <tr key={rowIndex} className="border-t border-slate-100">
+                            {folderPreview.headers.map((header) => (
+                              <td key={header.key} className="px-3 py-2 text-slate-700">
+                                {row[header.key] || '—'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        {!folderPreview.items.length && (
+                          <tr>
+                            <td
+                              colSpan={folderPreview.headers.length}
+                              className="px-3 py-4 text-center text-slate-500"
+                            >
+                              Tidak ada rincian item.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-900">Foto dokumentasi / realisasi</h3>
+                  <span className="text-xs text-slate-500">{folderPreview.photos.length} foto</span>
+                </div>
+                {folderPreview.photos.length ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {folderPreview.photos.map((photo) => (
+                      <figure key={photo.name} className="overflow-hidden rounded-xl border border-slate-200">
+                        <a href={apiAssetUrl(photo.url)} target="_blank" rel="noreferrer">
+                          <img
+                            src={apiAssetUrl(photo.url)}
+                            alt={photo.name}
+                            className="h-48 w-full bg-slate-100 object-contain"
+                          />
+                        </a>
+                        <figcaption className="truncate px-3 py-2 text-xs text-slate-600">
+                          {photo.name}
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+                    Tidak ada foto di folder ini.
+                  </p>
+                )}
+              </section>
+
+              {folderWorkflowError && (
+                <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                  {folderWorkflowError}
+                </p>
+              )}
+              <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setDialog(null)}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  disabled={folderZipBusy}
+                  onClick={downloadFolderZip}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  <Download size={15} />
+                  {folderZipBusy ? 'Menyiapkan ZIP…' : 'ZIP & lanjut ke email'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={sendFolderEmail} className="space-y-4">
+              <p className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
+                ZIP <strong>{folderPreview.folder_name}.zip</strong> akan dilampirkan otomatis.
+                Pengiriman memakai SMTP Gmail yang harus dikonfigurasi di server.
+              </p>
+              {folderWorkflowError && (
+                <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                  {folderWorkflowError}
+                </p>
+              )}
+              <label className="block text-sm font-medium text-slate-700">
+                Gunakan template email
+                <select
+                  value={selectedEmailTemplateId}
+                  onChange={(event) => selectEmailTemplate(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                >
+                  <option value="">Tulis email tanpa template</option>
+                  {emailTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium text-slate-700">Kirim kepada</legend>
+                {emailRecipients.length ? (
+                  <div className="grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+                    {emailRecipients.map((recipient) => (
+                      <label key={recipient.id} className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={selectedEmailRecipients.includes(recipient.email)}
+                          onChange={(event) =>
+                            setSelectedEmailRecipients((current) =>
+                              event.target.checked
+                                ? [...current, recipient.email]
+                                : current.filter((email) => email !== recipient.email),
+                            )
+                          }
+                        />
+                        <span className="break-all">{recipient.email}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Belum ada alamat email tersimpan.{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDialog(null)
+                        navigate(navigation.find((item) => item.target === 'email-templates'))
+                      }}
+                      className="font-semibold underline"
+                    >
+                      Kelola alamat email
+                    </button>
+                  </p>
+                )}
+              </fieldset>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Subjek
+                <input
+                  required
+                  maxLength={255}
+                  value={emailSubject}
+                  onChange={(event) => setEmailSubject(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Isi email
+                <textarea
+                  required
+                  maxLength={15000}
+                  rows={7}
+                  value={emailBody}
+                  onChange={(event) => setEmailBody(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="Tulis pesan email di sini…"
+                />
+              </label>
+              <div className="flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setFolderWorkflowStep('review')}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium"
+                >
+                  Kembali periksa folder
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    sendingFolderEmail ||
+                    !selectedEmailRecipients.length ||
+                    !emailSubject.trim() ||
+                    !emailBody.trim()
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  <Send size={15} />
+                  {sendingFolderEmail ? 'Mengirim…' : 'Kirim email'}
+                </button>
+              </div>
+            </form>
+          )}
+        </Modal>
+      )}
+
+      {dialog === 'email-template' && (
+        <Modal
+          title={editingEmailTemplateId ? 'Edit template email' : 'Template email baru'}
+          onClose={() => setDialog(null)}
+        >
+          <form onSubmit={saveEmailTemplate} className="space-y-4">
+            <label className="block text-sm font-medium text-slate-700">
+              Nama template
+              <input
+                required
+                maxLength={120}
+                value={emailTemplateForm.name}
+                onChange={(event) =>
+                  setEmailTemplateForm((current) => ({ ...current, name: event.target.value }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+            </label>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-slate-700">Penerima default</legend>
+              {emailRecipients.length ? (
+                <div className="grid gap-2 rounded-lg border border-slate-200 p-3">
+                  {emailRecipients.map((recipient) => (
+                    <label key={recipient.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={emailTemplateForm.recipients.includes(recipient.email)}
+                        onChange={(event) =>
+                          setEmailTemplateForm((current) => ({
+                            ...current,
+                            recipients: event.target.checked
+                              ? [...current.recipients, recipient.email]
+                              : current.recipients.filter((email) => email !== recipient.email),
+                          }))
+                        }
+                      />
+                      <span className="break-all">{recipient.email}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-amber-800">Tambahkan alamat email dari halaman Email Templates terlebih dahulu.</p>
+              )}
+            </fieldset>
+            <label className="block text-sm font-medium text-slate-700">
+              Subjek
+              <input
+                required
+                maxLength={255}
+                value={emailTemplateForm.subject}
+                onChange={(event) =>
+                  setEmailTemplateForm((current) => ({ ...current, subject: event.target.value }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm font-medium text-slate-700">
+              Isi email
+              <textarea
+                required
+                maxLength={15000}
+                rows={7}
+                value={emailTemplateForm.body}
+                onChange={(event) =>
+                  setEmailTemplateForm((current) => ({ ...current, body: event.target.value }))
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+              />
+            </label>
+            <ModalActions
+              onCancel={() => setDialog(null)}
+              saving={saving}
+              disabled={!emailTemplateForm.recipients.length}
+              submitLabel="Simpan template email"
             />
           </form>
         </Modal>
@@ -1654,6 +2309,7 @@ function DocumentTable({
   onDelete,
   onEdit,
   onCopy,
+  onPreviewFolder,
   deletingDocumentId,
   openingDocumentId,
 }) {
@@ -1695,6 +2351,17 @@ function DocumentTable({
               </td>
               <td className="py-3">
                 <div className="flex flex-wrap items-center gap-3">
+                  {item.folder_name && (
+                    <button
+                      type="button"
+                      disabled={openingDocumentId === item.id}
+                      onClick={() => onPreviewFolder(item)}
+                      className="inline-flex items-center gap-1.5 text-slate-700 disabled:opacity-50"
+                    >
+                      <Eye size={14} />
+                      Lihat folder
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onDownload(item)}

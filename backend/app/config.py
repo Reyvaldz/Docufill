@@ -26,3 +26,11 @@ MAX_UPLOAD_MB = int(os.environ.get('MAX_UPLOAD_MB', '10'))
 if MAX_UPLOAD_MB < 1:
     raise ValueError('MAX_UPLOAD_MB must be a positive integer')
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+
+EMAIL_SMTP_HOST = os.environ.get('EMAIL_SMTP_HOST', 'smtp.gmail.com')
+EMAIL_SMTP_PORT = int(os.environ.get('EMAIL_SMTP_PORT', '587'))
+if not 1 <= EMAIL_SMTP_PORT <= 65535:
+    raise ValueError('EMAIL_SMTP_PORT must be between 1 and 65535')
+EMAIL_SMTP_USERNAME = os.environ.get('EMAIL_SMTP_USERNAME', '')
+EMAIL_SMTP_PASSWORD = os.environ.get('EMAIL_SMTP_PASSWORD', '')
+EMAIL_FROM = os.environ.get('EMAIL_FROM', '').strip() or EMAIL_SMTP_USERNAME

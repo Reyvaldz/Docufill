@@ -48,3 +48,22 @@ class DocumentRecord(Base):
     template_id = Column(Integer, ForeignKey('templates.id'), nullable=True)
 
     template = relationship('Template', back_populates='documents')
+
+
+class EmailRecipient(Base):
+    __tablename__ = 'email_recipients'
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(320), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class EmailTemplate(Base):
+    __tablename__ = 'email_templates'
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(120), nullable=False)
+    recipients = Column(Text, nullable=False, default='[]')
+    subject = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
