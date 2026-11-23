@@ -16,11 +16,19 @@ def analyze_spreadsheet(
     file_path: Path,
     include_existing_fields: bool = False,
     custom_fields: list[dict] | None = None,
+    field_options: dict[str, list[str]] | None = None,
 ) -> dict:
+    has_field_options = field_options is not None
+    field_options = field_options or {}
     workbook = load_workbook(file_path)
     candidates = []
     for worksheet in workbook.worksheets:
-        analysis = _analyze_worksheet(workbook, worksheet, include_existing_fields)
+        analysis = _analyze_worksheet(
+            workbook,
+            worksheet,
+            include_existing_fields,
+            field_options,
+        )
         if analysis['headers']:
             candidates.append(analysis)
 
@@ -37,19 +45,24 @@ def analyze_spreadsheet(
             item['sheet_name'] == workbook.active.title,
         ),
     )
-    if custom_fields:
+    if custom_fields is not None:
         worksheet = workbook[analysis['sheet_name']]
         analysis['custom_fields'] = [
             {
                 **field,
-                'options': _list_validation_options(
-                    workbook,
-                    worksheet,
-                    field['cell'],
+                'options': field_options.get(
+                    field['key'],
+                    _list_validation_options(
+                        workbook,
+                        worksheet,
+                        field['cell'],
+                    ),
                 ),
             }
             for field in custom_fields
         ]
+    if has_field_options:
+        analysis['field_options'] = field_options
     workbook.close()
     return analysis
 
@@ -58,7 +71,9 @@ def _analyze_worksheet(
     workbook,
     worksheet: Worksheet,
     include_existing_fields: bool = False,
+    field_options: dict[str, list[str]] | None = None,
 ) -> dict:
+    field_options = field_options or {}
     max_column = _last_content_column(worksheet)
     merged_ranges = [
         {
@@ -100,10 +115,13 @@ def _analyze_worksheet(
                             and prototype.data_type != 'f'
                         ),
                         'input_type': input_type,
-                        'options': _list_validation_options(
-                            workbook,
-                            worksheet,
-                            prototype.coordinate,
+                        'options': field_options.get(
+                            f'column_{column_index}',
+                            _list_validation_options(
+                                workbook,
+                                worksheet,
+                                prototype.coordinate,
+                            ),
                         ),
                     }
                 )
@@ -163,10 +181,13 @@ def _analyze_worksheet(
                             'label_cell': cell.coordinate,
                             'input_cell': target_cell.coordinate,
                             'input_type': _input_type_for_label(label),
-                            'options': _list_validation_options(
-                                workbook,
-                                worksheet,
-                                target_cell.coordinate,
+                            'options': field_options.get(
+                                f'field_{cell.coordinate}',
+                                _list_validation_options(
+                                    workbook,
+                                    worksheet,
+                                    target_cell.coordinate,
+                                ),
                             ),
                         }
                     )

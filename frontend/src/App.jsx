@@ -98,6 +98,37 @@ function loadSavedWallpaper() {
   }
 }
 
+function FieldOptionsEditor({ field, options, onChange }) {
+  const fieldOptions = options ?? field.options ?? []
+
+  return (
+    <label className="block text-xs font-medium text-slate-600">
+      Pilihan dropdown (satu per baris)
+      <textarea
+        rows={3}
+        value={fieldOptions.join('\n')}
+        onChange={(event) =>
+          onChange(
+            event.target.value
+              .split(/\r?\n/)
+              .map((option) => option.trim())
+              .filter(Boolean),
+          )
+        }
+        placeholder="Contoh:
+Operasional
+Keuangan"
+        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal"
+      />
+      <span className="mt-1 block font-normal">
+        {fieldOptions.length
+          ? 'Pengguna akan memilih salah satu opsi ini saat membuat dokumen.'
+          : 'Kosongkan agar field bisa diisi manual.'}
+      </span>
+    </label>
+  )
+}
+
 function App() {
   const [dashboard, setDashboard] = useState(defaultDashboard)
   const [templates, setTemplates] = useState([])
@@ -135,6 +166,7 @@ function App() {
   const [templateFieldAnalysis, setTemplateFieldAnalysis] = useState(null)
   const [templateAnalysisError, setTemplateAnalysisError] = useState('')
   const [templateCustomFields, setTemplateCustomFields] = useState([])
+  const [templateFieldOptions, setTemplateFieldOptions] = useState({})
   const [folderPreview, setFolderPreview] = useState(null)
   const [folderWorkflowStep, setFolderWorkflowStep] = useState('review')
   const [folderWorkflowError, setFolderWorkflowError] = useState('')
@@ -371,6 +403,7 @@ function App() {
   const openTemplateFieldEditor = async (template) => {
     setEditingTemplateId(template.id)
     setTemplateCustomFields(template.custom_fields || [])
+    setTemplateFieldOptions(template.field_options || {})
     setTemplateFieldAnalysis(null)
     setTemplateAnalysisError('')
     setDialog('edit-template-fields')
@@ -378,6 +411,7 @@ function App() {
       const { data } = await axios.get(`${API_URL}/templates/${template.id}/analysis`)
       setTemplateFieldAnalysis(data)
       setTemplateCustomFields(data.custom_fields || [])
+      setTemplateFieldOptions(data.field_options || template.field_options || {})
     } catch (error) {
       console.error('Unable to load template form settings', error)
       setTemplateAnalysisError(
@@ -392,6 +426,7 @@ function App() {
     try {
       await axios.patch(`${API_URL}/templates/${editingTemplateId}`, {
         custom_fields: templateCustomFields,
+        field_options: templateFieldOptions,
       })
       await refreshData()
       setDialog(null)
@@ -2119,9 +2154,8 @@ function App() {
         <Modal title="Unggah template Excel" onClose={() => setDialog(null)}>
           <form onSubmit={uploadTemplate} className="space-y-5">
             <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900">
-              Isi detail template dan pilih file .xlsx. Opsi dropdown yang sudah diatur di Excel
-              akan tersedia saat mengisi dokumen; field tanpa opsi tetap bisa diketik manual.
-              Nomor pengajuan boleh dikosongkan.
+              Isi detail template dan pilih file .xlsx. Setelah diunggah, Anda bisa menambahkan
+              pilihan dropdown sendiri di pengaturan form. Nomor pengajuan boleh dikosongkan.
             </p>
             <section className="space-y-4 rounded-xl border border-slate-200 p-4">
               <h3 className="text-sm font-semibold text-slate-900">Informasi template</h3>
@@ -2155,8 +2189,7 @@ function App() {
                 />
               </label>
               <p className="text-xs text-slate-500">
-                Gunakan file .xlsx. Pastikan dropdown Excel (jika ada) sudah diatur pada sel
-                isian atau baris contoh.
+                Gunakan file .xlsx. Opsi pilihan dapat diatur setelah template berhasil diunggah.
               </p>
             </section>
             <ModalActions
@@ -2168,7 +2201,7 @@ function App() {
         </Modal>
       )}
       {dialog === 'edit-template-fields' && (
-        <Modal title="Edit form template" onClose={() => setDialog(null)} wide>
+        <Modal title="Pengaturan form template" onClose={() => setDialog(null)} wide>
           <form onSubmit={saveTemplateFields} className="space-y-4">
             {templateAnalysisError && (
               <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -2203,12 +2236,14 @@ function App() {
                           className="block text-sm font-medium text-slate-700"
                         >
                           {field.label}
-                          {field.options?.length ? (
+                          {(templateFieldOptions[field.key] ?? field.options)?.length ? (
                             <select
                               disabled
                               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
                             >
-                              <option>{field.options[0]}</option>
+                              <option>
+                                {(templateFieldOptions[field.key] ?? field.options)[0]}
+                              </option>
                             </select>
                           ) : (
                             <input
@@ -2229,12 +2264,14 @@ function App() {
                           className="block text-sm font-medium text-slate-700"
                         >
                           {field.label || 'Field tambahan'}
-                          {field.options?.length ? (
+                          {(templateFieldOptions[field.key] ?? field.options)?.length ? (
                             <select
                               disabled
                               className="mt-1 w-full rounded-lg border border-brand-300 bg-white px-3 py-2 disabled:opacity-100"
                             >
-                              <option>{field.options[0]}</option>
+                              <option>
+                                {(templateFieldOptions[field.key] ?? field.options)[0]}
+                              </option>
                             </select>
                           ) : (
                             <input
@@ -2265,13 +2302,15 @@ function App() {
                             className="block text-sm font-medium text-slate-700"
                           >
                             {header.label}
-                            {header.editable && header.options?.length ? (
+                            {header.editable &&
+                            (templateFieldOptions[header.key] ?? header.options)?.length ? (
                               <select
                                 disabled
                                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
                               >
                                 <option>
-                                  {header.options[0] || `Contoh (${header.cell})`}
+                                  {(templateFieldOptions[header.key] ?? header.options)[0] ||
+                                    `Contoh (${header.cell})`}
                                 </option>
                               </select>
                             ) : (
@@ -2306,6 +2345,55 @@ function App() {
                         Belum ada field yang terdeteksi. Periksa format sheet Excel.
                       </p>
                     )}
+                </section>
+                <section className="space-y-4 rounded-xl border border-slate-200 p-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">Atur pilihan dropdown</h3>
+                      <p className="text-xs text-slate-500">
+                        Tulis satu pilihan per baris. Jika dikosongkan, field dapat diisi manual.
+                      </p>
+                    </div>
+                    {templateFieldAnalysis.fields.map((field) => (
+                      <FieldOptionsEditor
+                        key={field.key}
+                        field={field}
+                        options={templateFieldOptions[field.key]}
+                        onChange={(options) =>
+                          setTemplateFieldOptions((current) => ({
+                            ...current,
+                            [field.key]: options,
+                          }))
+                        }
+                      />
+                    ))}
+                    {templateCustomFields.map((field) => (
+                      <FieldOptionsEditor
+                        key={field.key}
+                        field={field}
+                        options={templateFieldOptions[field.key]}
+                        onChange={(options) =>
+                          setTemplateFieldOptions((current) => ({
+                            ...current,
+                            [field.key]: options,
+                          }))
+                        }
+                      />
+                    ))}
+                    {templateFieldAnalysis.headers
+                      .filter((header) => header.editable)
+                      .map((header) => (
+                        <FieldOptionsEditor
+                          key={header.key}
+                          field={header}
+                          options={templateFieldOptions[header.key]}
+                          onChange={(options) =>
+                            setTemplateFieldOptions((current) => ({
+                              ...current,
+                              [header.key]: options,
+                            }))
+                          }
+                        />
+                      ))}
                 </section>
                 <div>
                   <h3 className="font-semibold text-slate-900">Field tambahan template</h3>
@@ -2398,9 +2486,16 @@ function App() {
                     <button
                       type="button"
                       onClick={() =>
-                        setTemplateCustomFields((current) =>
-                          current.filter((_, itemIndex) => itemIndex !== index),
-                        )
+                        {
+                          setTemplateCustomFields((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                          setTemplateFieldOptions((current) => {
+                            const next = { ...current }
+                            delete next[field.key]
+                            return next
+                          })
+                        }
                       }
                       aria-label={`Hapus ${field.label || 'isian tambahan'}`}
                       className="self-end rounded-lg px-3 py-2 text-red-700 hover:bg-red-50"

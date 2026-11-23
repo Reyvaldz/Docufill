@@ -87,6 +87,17 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
                     {'key': 'project', 'label': 'Proyek', 'cell': 'D2'},
                 ],
             )
+            configured_analysis = analyze_spreadsheet(
+                file_path,
+                custom_fields=[
+                    {'key': 'project', 'label': 'Proyek', 'cell': 'D2'},
+                ],
+                field_options={
+                    'field_A2': ['Manajemen'],
+                    'column_2': ['Prioritas tinggi'],
+                    'project': ['Proyek internal'],
+                },
+            )
 
         fields = {field['label']: field for field in analysis['fields']}
         headers = {header['label']: header for header in analysis['headers']}
@@ -95,6 +106,18 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
         self.assertEqual(
             ['Operasional', 'Keuangan'],
             analysis['custom_fields'][0]['options'],
+        )
+        self.assertEqual(
+            ['Manajemen'],
+            configured_analysis['fields'][0]['options'],
+        )
+        self.assertEqual(
+            ['Prioritas tinggi'],
+            configured_analysis['headers'][1]['options'],
+        )
+        self.assertEqual(
+            ['Proyek internal'],
+            configured_analysis['custom_fields'][0]['options'],
         )
 
     def test_extracted_custom_fields_keep_excel_dropdown_options(self):

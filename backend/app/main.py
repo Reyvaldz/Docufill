@@ -92,6 +92,11 @@ def startup_event() -> None:
             connection.execute(
                 text("ALTER TABLE templates ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'")
             )
+    if 'field_options' not in template_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE templates ADD COLUMN field_options TEXT NOT NULL DEFAULT '{}'")
+            )
     document_columns = {column['name'] for column in inspect(engine).get_columns('documents')}
     if 'folder_name' not in document_columns:
         with engine.begin() as connection:
@@ -133,6 +138,7 @@ def list_templates(db: Session = Depends(get_db)) -> list[dict]:
             'version': template.version,
             'file_name': template.file_name,
             'custom_fields': json.loads(template.custom_fields or '[]'),
+            'field_options': json.loads(template.field_options or '{}'),
             'created_at': template.created_at.isoformat() if template.created_at else None,
         }
         for template in templates
@@ -191,6 +197,32 @@ async def upload_template(
     }
 
 
+def _normalize_field_options(field_options: dict, allowed_keys: set[str]) -> dict[str, list[str]]:
+    if not isinstance(field_options, dict):
+        raise ValueError('Daftar opsi field tidak valid.')
+
+    normalized = {}
+    for key, options in field_options.items():
+        if not isinstance(key, str) or key not in allowed_keys:
+            raise ValueError(f'Field opsi tidak dikenal: {key}.')
+        if not isinstance(options, list) or len(options) > 100:
+            raise ValueError(f'Opsi untuk field {key} tidak valid (maksimal 100).')
+
+        values = []
+        seen = set()
+        for option in options:
+            if not isinstance(option, str):
+                raise ValueError(f'Setiap opsi untuk field {key} harus berupa teks.')
+            value = option.strip()
+            if not value or len(value) > 200:
+                raise ValueError(f'Opsi untuk field {key} harus berisi 1-200 karakter.')
+            if value.casefold() not in seen:
+                values.append(value)
+                seen.add(value.casefold())
+        normalized[key] = values
+    return normalized
+
+
 @app.patch('/api/templates/{template_id}')
 def update_template_fields(template_id: int, payload: dict, db: Session = Depends(get_db)) -> dict:
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -202,6 +234,10 @@ def update_template_fields(template_id: int, payload: dict, db: Session = Depend
     custom_fields = payload.get('custom_fields')
     if not isinstance(custom_fields, list) or len(custom_fields) > 40:
         raise HTTPException(status_code=422, detail='Daftar informasi tambahan tidak valid (maksimal 40).')
+    field_options = payload.get(
+        'field_options',
+        json.loads(template.field_options or '{}'),
+    )
 
     template_path = (TEMPLATE_DIR / template.file_name).resolve()
     if not template_path.is_relative_to(TEMPLATE_DIR.resolve()) or not template_path.is_file():
@@ -228,12 +264,25 @@ def update_template_fields(template_id: int, payload: dict, db: Session = Depend
             }
             for index, field in enumerate(custom_fields, start=1)
         ]
+        allowed_option_keys = {
+            field['key']
+            for field in [*analysis['fields'], *analysis['headers'], *normalized_fields]
+        }
+        normalized_options = _normalize_field_options(
+            field_options,
+            allowed_option_keys,
+        )
     except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     template.custom_fields = json.dumps(normalized_fields, ensure_ascii=False)
+    template.field_options = json.dumps(normalized_options, ensure_ascii=False)
     db.commit()
-    return {'id': template.id, 'custom_fields': normalized_fields}
+    return {
+        'id': template.id,
+        'custom_fields': normalized_fields,
+        'field_options': normalized_options,
+    }
 
 
 @app.delete('/api/templates/{template_id}')
@@ -274,6 +323,7 @@ def analyze_template(template_id: int, db: Session = Depends(get_db)) -> dict:
         analysis = analyze_spreadsheet(
             template_path,
             custom_fields=json.loads(template.custom_fields or '[]'),
+            field_options=json.loads(template.field_options or '{}'),
         )
         return analysis
     except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
@@ -374,11 +424,27 @@ def _spreadsheet_document_source(document: DocumentRecord, db: Session):
         if candidate.is_relative_to(TEMPLATE_DIR.resolve()) and candidate.is_file():
             source_path = candidate
 
+    custom_fields = json.loads(template.custom_fields or '[]') if template else None
+    field_options = json.loads(template.field_options or '{}') if template else None
     analysis = analyze_spreadsheet(
         source_path,
         include_existing_fields=source_path == output_path,
+        custom_fields=custom_fields,
+        field_options=field_options,
     )
     data = extract_spreadsheet_data(output_path, analysis)
+    if analysis.get('custom_fields'):
+        configured_options = {
+            field['key']: field['options']
+            for field in analysis['custom_fields']
+        }
+        data['custom_fields'] = [
+            {
+                **field,
+                'options': configured_options.get(field['key'], field.get('options', [])),
+            }
+            for field in data['custom_fields']
+        ]
     return template, source_path, output_path, analysis, data
 
 
