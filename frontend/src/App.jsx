@@ -98,6 +98,24 @@ function loadSavedWallpaper() {
   }
 }
 
+function getWallpaperTextColor(image) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 32
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Browser tidak dapat memeriksa kontras wallpaper.')
+
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+  let luminance = 0
+
+  for (let index = 0; index < pixels.length; index += 4) {
+    luminance += (pixels[index] * 299 + pixels[index + 1] * 587 + pixels[index + 2] * 114) / 1000
+  }
+
+  return luminance / (pixels.length / 4) < 145 ? '#f8fafc' : '#0f172a'
+}
+
 function FieldOptionsEditor({ label, options, onChange }) {
   const fieldOptions = options ?? []
 
@@ -207,6 +225,31 @@ function App() {
     body: '',
   })
   const [editingEmailTemplateId, setEditingEmailTemplateId] = useState(null)
+
+  useEffect(() => {
+    if (wallpaper.type !== 'image' || wallpaper.textColor) return undefined
+
+    let cancelled = false
+    const image = new window.Image()
+    image.onload = () => {
+      try {
+        const textColor = getWallpaperTextColor(image)
+        if (!cancelled) {
+          setWallpaper((current) =>
+            current.value === wallpaper.value ? { ...current, textColor } : current,
+          )
+        }
+      } catch (error) {
+        console.error('Unable to determine wallpaper text contrast', error)
+      }
+    }
+    image.onerror = () => console.error('Unable to load wallpaper for contrast detection')
+    image.src = wallpaper.value
+
+    return () => {
+      cancelled = true
+    }
+  }, [wallpaper])
 
   const spreadsheetTemplates = templates.filter((template) =>
     template.file_name?.toLowerCase().endsWith('.xlsx'),
@@ -372,6 +415,7 @@ function App() {
       const context = canvas.getContext('2d')
       if (!context) throw new Error('Browser tidak dapat memproses gambar wallpaper.')
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      const textColor = getWallpaperTextColor(canvas)
 
       let value = canvas.toDataURL('image/jpeg', 0.78)
       if (value.length > 3_500_000) {
@@ -380,7 +424,7 @@ function App() {
       if (value.length > 3_500_000) {
         throw new Error('Gambar masih terlalu besar setelah dikompres. Pilih gambar yang lebih kecil.')
       }
-      saveWallpaper({ type: 'image', value })
+      saveWallpaper({ type: 'image', value, textColor })
     } catch (error) {
       console.error('Unable to process wallpaper image', error)
       setNotice(error.message || 'Gambar wallpaper tidak dapat diproses.')
@@ -394,7 +438,7 @@ function App() {
     wallpaper.type === 'image'
       ? {
           backgroundColor: '#e2e8f0',
-          backgroundImage: `linear-gradient(rgba(248, 250, 252, 0.76), rgba(248, 250, 252, 0.76)), url("${wallpaper.value}")`,
+          backgroundImage: `url("${wallpaper.value}")`,
           backgroundPosition: 'center',
           backgroundSize: 'cover',
           backgroundAttachment: 'fixed',
@@ -405,6 +449,12 @@ function App() {
             wallpaperPresets[0].background,
           backgroundAttachment: 'fixed',
         }
+  const wallpaperTextColor =
+    wallpaper.type === 'image' ? wallpaper.textColor || '#0f172a' : '#0f172a'
+  const wallpaperTextShadow =
+    wallpaperTextColor === '#f8fafc'
+      ? '0 1px 4px rgba(0, 0, 0, 0.75)'
+      : '0 1px 4px rgba(255, 255, 255, 0.85)'
 
   const openNewDocument = (template = spreadsheetTemplates[0]) => {
     if (!template) {
@@ -1026,7 +1076,10 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen text-slate-800" style={activeWallpaper}>
+    <div
+      className="min-h-screen text-slate-800"
+      style={{ ...activeWallpaper, color: wallpaperTextColor }}
+    >
       <div className="flex min-h-screen">
         <aside className="hidden w-72 flex-col justify-between bg-slate-950 p-6 text-slate-100 lg:flex">
           <div>
@@ -1067,13 +1120,27 @@ function App() {
         </aside>
 
         <main className="flex-1 p-4 md:p-8">
-          <header className="mb-8 border-b border-slate-200 pb-6">
+          <header
+            className="mb-8 border-b pb-6"
+            style={{
+              borderColor:
+                wallpaperTextColor === '#f8fafc'
+                  ? 'rgba(248, 250, 252, 0.45)'
+                  : 'rgba(15, 23, 42, 0.2)',
+            }}
+          >
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
+                <p
+                  className="text-sm font-medium uppercase tracking-[0.2em]"
+                  style={{ color: wallpaperTextColor, textShadow: wallpaperTextShadow }}
+                >
                   DocuFill
                 </p>
-                <h2 className="mt-2 text-3xl font-bold text-slate-900">
+                <h2
+                  className="mt-2 text-3xl font-bold"
+                  style={{ color: wallpaperTextColor, textShadow: wallpaperTextShadow }}
+                >
                   {pageTitles[activeSection]}
                 </h2>
               </div>

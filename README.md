@@ -7,7 +7,9 @@ The interface keeps Dashboard, Templates, Documents, All Documents, and Email
 Templates on separate pages accessible from the navigation menu.
 Choose **Wallpaper** to select a built-in background or upload a JPG, PNG, or
 WebP image. The choice is saved locally in the current browser and is not
-uploaded to the backend or shared across devices.
+uploaded to the backend or shared across devices. Uploaded photos retain their
+original color, and the page heading automatically switches text color for
+contrast against the selected image.
 
 ## Code structure
 
