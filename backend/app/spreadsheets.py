@@ -12,7 +12,11 @@ from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
 
-def analyze_spreadsheet(file_path: Path, include_existing_fields: bool = False) -> dict:
+def analyze_spreadsheet(
+    file_path: Path,
+    include_existing_fields: bool = False,
+    custom_fields: list[dict] | None = None,
+) -> dict:
     workbook = load_workbook(file_path)
     candidates = []
     for worksheet in workbook.worksheets:
@@ -33,6 +37,19 @@ def analyze_spreadsheet(file_path: Path, include_existing_fields: bool = False) 
             item['sheet_name'] == workbook.active.title,
         ),
     )
+    if custom_fields:
+        worksheet = workbook[analysis['sheet_name']]
+        analysis['custom_fields'] = [
+            {
+                **field,
+                'options': _list_validation_options(
+                    workbook,
+                    worksheet,
+                    field['cell'],
+                ),
+            }
+            for field in custom_fields
+        ]
     workbook.close()
     return analysis
 
@@ -146,6 +163,11 @@ def _analyze_worksheet(
                             'label_cell': cell.coordinate,
                             'input_cell': target_cell.coordinate,
                             'input_type': _input_type_for_label(label),
+                            'options': _list_validation_options(
+                                workbook,
+                                worksheet,
+                                target_cell.coordinate,
+                            ),
                         }
                     )
                     seen_targets.add(target_cell.coordinate)
@@ -431,6 +453,11 @@ def extract_spreadsheet_data(file_path: Path, analysis: dict) -> dict:
                         'cell': cell,
                         'input_type': input_type or 'text',
                         'value': _serialize_cell_value(worksheet[cell].value),
+                        'options': _list_validation_options(
+                            workbook,
+                            worksheet,
+                            cell,
+                        ),
                     }
                 )
         return {'fields': fields, 'items': items, 'custom_fields': custom_fields}

@@ -1532,22 +1532,57 @@ function App() {
                     <div className="grid gap-3">
                       {templateAnalysis.fields.map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
-                          {field.label}
-                          <input
-                            type={field.input_type || 'text'}
-                            required={
-                              documentMode === 'create' &&
-                              Boolean(getSubmissionFieldType(field.label))
-                            }
-                            value={formFields[field.key] || ''}
-                            onChange={(event) =>
-                              setFormFields((current) => ({
-                                ...current,
-                                [field.key]: event.target.value,
-                              }))
-                            }
-                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                          />
+                          <span className="flex items-center justify-between gap-2">
+                            {field.label}
+                            {!getSubmissionFieldType(field.label) && (
+                              <span className="text-xs font-normal text-slate-500">Opsional</span>
+                            )}
+                          </span>
+                          {field.options?.length ? (
+                            <select
+                              required={
+                                documentMode === 'create' &&
+                                Boolean(getSubmissionFieldType(field.label))
+                              }
+                              value={formFields[field.key] || ''}
+                              onChange={(event) =>
+                                setFormFields((current) => ({
+                                  ...current,
+                                  [field.key]: event.target.value,
+                                }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                            >
+                              <option value="">Pilih {field.label}</option>
+                              {formFields[field.key] &&
+                                !field.options.includes(formFields[field.key]) && (
+                                  <option value={formFields[field.key]}>
+                                    {formFields[field.key]}
+                                  </option>
+                                )}
+                              {field.options.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type={field.input_type || 'text'}
+                              required={
+                                documentMode === 'create' &&
+                                Boolean(getSubmissionFieldType(field.label))
+                              }
+                              value={formFields[field.key] || ''}
+                              onChange={(event) =>
+                                setFormFields((current) => ({
+                                  ...current,
+                                  [field.key]: event.target.value,
+                                }))
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                            />
+                          )}
                         </label>
                       ))}
                     </div>
@@ -1565,26 +1600,61 @@ function App() {
                     <div className="grid gap-3">
                       {customFields.map((field, index) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
-                          {field.label}
-                          <input
-                            type={field.input_type || 'text'}
-                            step={field.input_type === 'number' ? 'any' : undefined}
-                            required={
-                              documentMode === 'create' &&
-                              Boolean(getSubmissionFieldType(field.label))
-                            }
-                            value={field.value || ''}
-                            onChange={(event) =>
-                              setCustomFields((current) =>
-                                current.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, value: event.target.value }
-                                    : item,
-                                ),
-                              )
-                            }
-                            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-                          />
+                          <span className="flex items-center justify-between gap-2">
+                            {field.label}
+                            {!getSubmissionFieldType(field.label) && (
+                              <span className="text-xs font-normal text-slate-500">Opsional</span>
+                            )}
+                          </span>
+                          {field.options?.length ? (
+                            <select
+                              required={
+                                documentMode === 'create' &&
+                                Boolean(getSubmissionFieldType(field.label))
+                              }
+                              value={field.value || ''}
+                              onChange={(event) =>
+                                setCustomFields((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, value: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                            >
+                              <option value="">Pilih {field.label}</option>
+                              {field.value && !field.options.includes(field.value) && (
+                                <option value={field.value}>{field.value}</option>
+                              )}
+                              {field.options.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type={field.input_type || 'text'}
+                              step={field.input_type === 'number' ? 'any' : undefined}
+                              required={
+                                documentMode === 'create' &&
+                                Boolean(getSubmissionFieldType(field.label))
+                              }
+                              value={field.value || ''}
+                              onChange={(event) =>
+                                setCustomFields((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, value: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                            />
+                          )}
                         </label>
                       ))}
                     </div>
@@ -2046,36 +2116,54 @@ function App() {
       )}
 
       {dialog === 'upload-template' && (
-        <Modal title="Upload template" onClose={() => setDialog(null)}>
-          <form onSubmit={uploadTemplate} className="space-y-4">
-            <FormField name="name" label="Template name" required />
-            <label className="block text-sm font-medium text-slate-700">
-              Category
-              <select
-                name="category_id"
-                required
-                defaultValue={categories[0]?.id || ''}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              >
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <FormField name="description" label="Description" />
-            <label className="block text-sm font-medium text-slate-700">
-              Excel file (.xlsx)
-              <input
-                name="file"
-                type="file"
-                accept=".xlsx"
-                required
-                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
-            <ModalActions onCancel={() => setDialog(null)} saving={saving} submitLabel="Upload" />
+        <Modal title="Unggah template Excel" onClose={() => setDialog(null)}>
+          <form onSubmit={uploadTemplate} className="space-y-5">
+            <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900">
+              Isi detail template dan pilih file .xlsx. Opsi dropdown yang sudah diatur di Excel
+              akan tersedia saat mengisi dokumen; field tanpa opsi tetap bisa diketik manual.
+              Nomor pengajuan boleh dikosongkan.
+            </p>
+            <section className="space-y-4 rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Informasi template</h3>
+              <FormField name="name" label="Nama template" required />
+              <label className="block text-sm font-medium text-slate-700">
+                Kategori
+                <select
+                  name="category_id"
+                  required
+                  defaultValue={categories[0]?.id || ''}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                >
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <FormField name="description" label="Deskripsi (opsional)" />
+            </section>
+            <section className="space-y-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              <label className="block text-sm font-semibold text-slate-800">
+                File template Excel
+                <input
+                  name="file"
+                  type="file"
+                  accept=".xlsx"
+                  required
+                  className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal"
+                />
+              </label>
+              <p className="text-xs text-slate-500">
+                Gunakan file .xlsx. Pastikan dropdown Excel (jika ada) sudah diatur pada sel
+                isian atau baris contoh.
+              </p>
+            </section>
+            <ModalActions
+              onCancel={() => setDialog(null)}
+              saving={saving}
+              submitLabel="Unggah template"
+            />
           </form>
         </Modal>
       )}
@@ -2115,12 +2203,21 @@ function App() {
                           className="block text-sm font-medium text-slate-700"
                         >
                           {field.label}
-                          <input
-                            type={field.input_type || 'text'}
-                            disabled
-                            placeholder={`Contoh isian (${field.input_cell})`}
-                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
-                          />
+                          {field.options?.length ? (
+                            <select
+                              disabled
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                            >
+                              <option>{field.options[0]}</option>
+                            </select>
+                          ) : (
+                            <input
+                              type={field.input_type || 'text'}
+                              disabled
+                              placeholder={`Contoh isian (${field.input_cell})`}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                            />
+                          )}
                           <span className="mt-1 block text-xs font-normal text-slate-500">
                             Terdeteksi dari sel {field.input_cell}
                           </span>
@@ -2132,16 +2229,25 @@ function App() {
                           className="block text-sm font-medium text-slate-700"
                         >
                           {field.label || 'Field tambahan'}
-                          <input
-                            type={field.input_type || 'text'}
-                            disabled
-                            placeholder={
-                              field.cell
-                                ? `Contoh isian (${field.cell})`
-                                : 'Tentukan sel Excel di pengaturan'
-                            }
-                            className="mt-1 w-full rounded-lg border border-brand-300 bg-white px-3 py-2 disabled:opacity-100"
-                          />
+                          {field.options?.length ? (
+                            <select
+                              disabled
+                              className="mt-1 w-full rounded-lg border border-brand-300 bg-white px-3 py-2 disabled:opacity-100"
+                            >
+                              <option>{field.options[0]}</option>
+                            </select>
+                          ) : (
+                            <input
+                              type={field.input_type || 'text'}
+                              disabled
+                              placeholder={
+                                field.cell
+                                  ? `Contoh isian (${field.cell})`
+                                  : 'Tentukan sel Excel di pengaturan'
+                              }
+                              className="mt-1 w-full rounded-lg border border-brand-300 bg-white px-3 py-2 disabled:opacity-100"
+                            />
+                          )}
                           <span className="mt-1 block text-xs font-normal text-slate-500">
                             Field tambahan{field.cell ? ` untuk sel ${field.cell}` : ''}
                           </span>

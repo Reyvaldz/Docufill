@@ -271,8 +271,10 @@ def analyze_template(template_id: int, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=404, detail='Template file not found')
 
     try:
-        analysis = analyze_spreadsheet(template_path)
-        analysis['custom_fields'] = json.loads(template.custom_fields or '[]')
+        analysis = analyze_spreadsheet(
+            template_path,
+            custom_fields=json.loads(template.custom_fields or '[]'),
+        )
         return analysis
     except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

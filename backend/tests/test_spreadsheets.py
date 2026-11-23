@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from app.spreadsheets import (
     analyze_spreadsheet,
@@ -51,6 +52,79 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
             [field['label'] for field in analysis['fields']],
         )
         self.assertEqual('date', analysis['fields'][1]['input_type'])
+
+    def test_detects_excel_dropdown_options_for_information_and_item_fields(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet['A2'] = 'Departemen'
+        worksheet['A4'] = 'Barang'
+        worksheet['B4'] = 'Prioritas'
+        worksheet['C4'] = 'Jumlah'
+        information_options = DataValidation(
+            type='list',
+            formula1='"Operasional,Keuangan"',
+            allow_blank=True,
+        )
+        item_options = DataValidation(
+            type='list',
+            formula1='"Normal,Mendesak"',
+            allow_blank=True,
+        )
+        worksheet.add_data_validation(information_options)
+        worksheet.add_data_validation(item_options)
+        information_options.add('B2')
+        information_options.add('D2')
+        item_options.add('B5')
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = Path(temporary_directory) / 'template.xlsx'
+            workbook.save(file_path)
+            workbook.close()
+
+            analysis = analyze_spreadsheet(
+                file_path,
+                custom_fields=[
+                    {'key': 'project', 'label': 'Proyek', 'cell': 'D2'},
+                ],
+            )
+
+        fields = {field['label']: field for field in analysis['fields']}
+        headers = {header['label']: header for header in analysis['headers']}
+        self.assertEqual(['Operasional', 'Keuangan'], fields['Departemen']['options'])
+        self.assertEqual(['Normal', 'Mendesak'], headers['Prioritas']['options'])
+        self.assertEqual(
+            ['Operasional', 'Keuangan'],
+            analysis['custom_fields'][0]['options'],
+        )
+
+    def test_extracted_custom_fields_keep_excel_dropdown_options(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet['A3'] = 'Barang'
+        worksheet['B3'] = 'Departemen'
+        validation = DataValidation(type='list', formula1='"Operasional,Keuangan"')
+        worksheet.add_data_validation(validation)
+        validation.add('C2')
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = Path(temporary_directory) / 'template.xlsx'
+            workbook.save(file_path)
+            workbook.close()
+            analysis = analyze_spreadsheet(file_path)
+
+            workbook = load_workbook(file_path)
+            metadata = workbook.create_sheet('_DocuFill')
+            metadata.append(['key', 'label', 'cell', 'input_type'])
+            metadata.append(['project', 'Proyek', 'C2', 'text'])
+            workbook.save(file_path)
+            workbook.close()
+
+            extracted = extract_spreadsheet_data(file_path, analysis)
+
+        self.assertEqual(
+            ['Operasional', 'Keuangan'],
+            extracted['custom_fields'][0]['options'],
+        )
 
     def test_generated_document_fills_detected_fields_and_copies_formula_rows(self):
         sample_path = PROJECT_ROOT / 'samples' / 'sample-reimbursement.xlsx'
