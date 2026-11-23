@@ -10,9 +10,11 @@ import {
   FolderKanban,
   Image,
   LayoutGrid,
+  Moon,
   Pencil,
   Plus,
   Send,
+  Sun,
   Trash2,
   X,
 } from 'lucide-react'
@@ -54,6 +56,7 @@ const pageTitles = {
 }
 
 const WALLPAPER_STORAGE_KEY = 'docufill.wallpaper'
+const THEME_STORAGE_KEY = 'docufill.theme'
 const wallpaperPresets = [
   { id: 'plain', label: 'Polos', background: '#f1f5f9' },
   {
@@ -77,6 +80,15 @@ const wallpaperPresets = [
     background: 'linear-gradient(135deg, #dcfce7 0%, #f0fdf4 50%, #ccfbf1 100%)',
   },
 ]
+
+function loadSavedTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light'
+  } catch (error) {
+    console.error('Unable to load saved theme', error)
+    return 'light'
+  }
+}
 
 function loadSavedWallpaper() {
   try {
@@ -182,6 +194,7 @@ function App() {
   const [dialog, setDialog] = useState(null)
   const [notice, setNotice] = useState('')
   const [wallpaper, setWallpaper] = useState(loadSavedWallpaper)
+  const [theme, setTheme] = useState(loadSavedTheme)
   const [wallpaperBusy, setWallpaperBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
@@ -379,6 +392,17 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme)
+    } catch (error) {
+      console.error('Unable to save theme preference', error)
+      setNotice('Tema berhasil diubah, tetapi preferensi tema tidak dapat disimpan di browser ini.')
+    }
+  }
+
   const saveWallpaper = (nextWallpaper) => {
     try {
       localStorage.setItem(WALLPAPER_STORAGE_KEY, JSON.stringify(nextWallpaper))
@@ -434,23 +458,37 @@ function App() {
     }
   }
 
-  const activeWallpaper =
-    wallpaper.type === 'image'
-      ? {
-          backgroundColor: '#e2e8f0',
-          backgroundImage: `url("${wallpaper.value}")`,
-          backgroundPosition: 'center',
-          backgroundSize: 'cover',
-          backgroundAttachment: 'fixed',
-        }
-      : {
-          background:
-            wallpaperPresets.find((preset) => preset.id === wallpaper.value)?.background ||
-            wallpaperPresets[0].background,
-          backgroundAttachment: 'fixed',
-        }
+  const activePreset =
+    wallpaperPresets.find((preset) => preset.id === wallpaper.value) || wallpaperPresets[0]
+  const activeWallpaper = {
+    backgroundColor:
+      wallpaper.type === 'image'
+        ? '#e2e8f0'
+        : theme === 'dark'
+          ? '#0f172a'
+          : activePreset.id === 'plain'
+            ? activePreset.background
+            : '#e2e8f0',
+    backgroundImage:
+      wallpaper.type === 'image'
+        ? theme === 'dark'
+          ? `linear-gradient(rgba(2, 6, 23, 0.32), rgba(2, 6, 23, 0.32)), url("${wallpaper.value}")`
+          : `url("${wallpaper.value}")`
+        : activePreset.id === 'plain'
+          ? 'none'
+          : theme === 'dark'
+            ? `linear-gradient(rgba(2, 6, 23, 0.86), rgba(2, 6, 23, 0.86)), ${activePreset.background}`
+            : activePreset.background,
+    backgroundPosition: 'center',
+    backgroundSize: 'cover',
+    backgroundAttachment: 'fixed',
+  }
   const wallpaperTextColor =
-    wallpaper.type === 'image' ? wallpaper.textColor || '#0f172a' : '#0f172a'
+    theme === 'dark'
+      ? '#f8fafc'
+      : wallpaper.type === 'image'
+        ? wallpaper.textColor || '#0f172a'
+        : '#0f172a'
   const wallpaperTextShadow =
     wallpaperTextColor === '#f8fafc'
       ? '0 1px 4px rgba(0, 0, 0, 0.75)'
@@ -1077,7 +1115,7 @@ function App() {
 
   return (
     <div
-      className="min-h-screen text-slate-800"
+      className={`min-h-screen text-slate-800 ${theme === 'dark' ? 'app-theme-dark' : ''}`}
       style={{ ...activeWallpaper, color: wallpaperTextColor }}
     >
       <div className="flex min-h-screen">
@@ -1119,14 +1157,21 @@ function App() {
           <p className="text-xs text-slate-500">Personal workspace</p>
         </aside>
 
-        <main className="flex-1 p-4 md:p-8">
+        <main className="min-w-0 flex-1 p-4 md:p-8">
           <header
             className="mb-8 border-b pb-6"
             style={{
+              backgroundColor:
+                wallpaperTextColor === '#f8fafc'
+                  ? 'rgba(15, 23, 42, 0.72)'
+                  : 'rgba(248, 250, 252, 0.78)',
               borderColor:
                 wallpaperTextColor === '#f8fafc'
-                  ? 'rgba(248, 250, 252, 0.45)'
-                  : 'rgba(15, 23, 42, 0.2)',
+                  ? 'rgba(248, 250, 252, 0.28)'
+                  : 'rgba(15, 23, 42, 0.16)',
+              borderRadius: '1rem',
+              backdropFilter: 'blur(12px)',
+              padding: '1rem',
             }}
           >
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1145,7 +1190,17 @@ function App() {
                 </h2>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  aria-pressed={theme === 'dark'}
+                  aria-label={`Beralih ke mode ${theme === 'dark' ? 'terang' : 'gelap'}`}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
+                >
+                  {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                  Mode {theme === 'dark' ? 'terang' : 'gelap'}
+                </button>
                 {activeSection === 'dashboard' && (
                   <button
                     type="button"

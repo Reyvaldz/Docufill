@@ -9,7 +9,9 @@ Choose **Wallpaper** to select a built-in background or upload a JPG, PNG, or
 WebP image. The choice is saved locally in the current browser and is not
 uploaded to the backend or shared across devices. Uploaded photos retain their
 original color, and the page heading automatically switches text color for
-contrast against the selected image.
+contrast against the selected image. Use the **Mode gelap/terang** control to
+switch themes; the selected theme is also saved in the current browser, and
+wallpaper colors are adjusted to keep the interface readable.
 
 ## Code structure
 
