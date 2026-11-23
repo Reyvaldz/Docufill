@@ -266,7 +266,7 @@ def update_template_fields(template_id: int, payload: dict, db: Session = Depend
         ]
         allowed_option_keys = {
             field['key']
-            for field in [*analysis['fields'], *analysis['headers'], *normalized_fields]
+            for field in [*analysis['fields'], *normalized_fields]
         }
         normalized_options = _normalize_field_options(
             field_options,

@@ -50,14 +50,7 @@ def analyze_spreadsheet(
         analysis['custom_fields'] = [
             {
                 **field,
-                'options': field_options.get(
-                    field['key'],
-                    _list_validation_options(
-                        workbook,
-                        worksheet,
-                        field['cell'],
-                    ),
-                ),
+                'options': field_options.get(field['key'], []),
             }
             for field in custom_fields
         ]
@@ -115,13 +108,10 @@ def _analyze_worksheet(
                             and prototype.data_type != 'f'
                         ),
                         'input_type': input_type,
-                        'options': field_options.get(
-                            f'column_{column_index}',
-                            _list_validation_options(
-                                workbook,
-                                worksheet,
-                                prototype.coordinate,
-                            ),
+                        'options': _list_validation_options(
+                            workbook,
+                            worksheet,
+                            prototype.coordinate,
                         ),
                     }
                 )
@@ -181,14 +171,7 @@ def _analyze_worksheet(
                             'label_cell': cell.coordinate,
                             'input_cell': target_cell.coordinate,
                             'input_type': _input_type_for_label(label),
-                            'options': field_options.get(
-                                f'field_{cell.coordinate}',
-                                _list_validation_options(
-                                    workbook,
-                                    worksheet,
-                                    target_cell.coordinate,
-                                ),
-                            ),
+                            'options': field_options.get(f'field_{cell.coordinate}', []),
                         }
                     )
                     seen_targets.add(target_cell.coordinate)
@@ -474,11 +457,6 @@ def extract_spreadsheet_data(file_path: Path, analysis: dict) -> dict:
                         'cell': cell,
                         'input_type': input_type or 'text',
                         'value': _serialize_cell_value(worksheet[cell].value),
-                        'options': _list_validation_options(
-                            workbook,
-                            worksheet,
-                            cell,
-                        ),
                     }
                 )
         return {'fields': fields, 'items': items, 'custom_fields': custom_fields}

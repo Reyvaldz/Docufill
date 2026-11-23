@@ -53,7 +53,7 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
         )
         self.assertEqual('date', analysis['fields'][1]['input_type'])
 
-    def test_detects_excel_dropdown_options_for_information_and_item_fields(self):
+    def test_excel_options_are_ignored_for_form_fields_but_kept_for_item_fields(self):
         workbook = Workbook()
         worksheet = workbook.active
         worksheet['A2'] = 'Departemen'
@@ -94,25 +94,21 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
                 ],
                 field_options={
                     'field_A2': ['Manajemen'],
-                    'column_2': ['Prioritas tinggi'],
                     'project': ['Proyek internal'],
                 },
             )
 
         fields = {field['label']: field for field in analysis['fields']}
         headers = {header['label']: header for header in analysis['headers']}
-        self.assertEqual(['Operasional', 'Keuangan'], fields['Departemen']['options'])
+        self.assertEqual([], fields['Departemen']['options'])
         self.assertEqual(['Normal', 'Mendesak'], headers['Prioritas']['options'])
-        self.assertEqual(
-            ['Operasional', 'Keuangan'],
-            analysis['custom_fields'][0]['options'],
-        )
+        self.assertEqual([], analysis['custom_fields'][0]['options'])
         self.assertEqual(
             ['Manajemen'],
             configured_analysis['fields'][0]['options'],
         )
         self.assertEqual(
-            ['Prioritas tinggi'],
+            ['Normal', 'Mendesak'],
             configured_analysis['headers'][1]['options'],
         )
         self.assertEqual(
@@ -120,7 +116,7 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
             configured_analysis['custom_fields'][0]['options'],
         )
 
-    def test_extracted_custom_fields_keep_excel_dropdown_options(self):
+    def test_extracted_custom_fields_do_not_import_excel_dropdown_options(self):
         workbook = Workbook()
         worksheet = workbook.active
         worksheet['A3'] = 'Barang'
@@ -144,10 +140,7 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
 
             extracted = extract_spreadsheet_data(file_path, analysis)
 
-        self.assertEqual(
-            ['Operasional', 'Keuangan'],
-            extracted['custom_fields'][0]['options'],
-        )
+        self.assertNotIn('options', extracted['custom_fields'][0])
 
     def test_generated_document_fills_detected_fields_and_copies_formula_rows(self):
         sample_path = PROJECT_ROOT / 'samples' / 'sample-reimbursement.xlsx'

@@ -98,8 +98,8 @@ function loadSavedWallpaper() {
   }
 }
 
-function FieldOptionsEditor({ field, options, onChange }) {
-  const fieldOptions = options ?? field.options ?? []
+function FieldOptionsEditor({ options, onChange }) {
+  const fieldOptions = options ?? []
 
   return (
     <label className="block text-xs font-medium text-slate-600">
@@ -2347,16 +2347,16 @@ function App() {
                     )}
                 </section>
                 <section className="space-y-4 rounded-xl border border-slate-200 p-4">
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Atur pilihan dropdown</h3>
-                      <p className="text-xs text-slate-500">
-                        Tulis satu pilihan per baris. Jika dikosongkan, field dapat diisi manual.
-                      </p>
-                    </div>
-                    {templateFieldAnalysis.fields.map((field) => (
+                  <div>
+                    <h3 className="font-semibold text-slate-900">Atur pilihan field form</h3>
+                    <p className="text-xs text-slate-500">
+                      Tulis satu pilihan per baris. Opsi Excel tidak diimpor; jika dikosongkan,
+                      field dapat diisi manual.
+                    </p>
+                  </div>
+                  {templateFieldAnalysis.fields.map((field) => (
                       <FieldOptionsEditor
                         key={field.key}
-                        field={field}
                         options={templateFieldOptions[field.key]}
                         onChange={(options) =>
                           setTemplateFieldOptions((current) => ({
@@ -2365,11 +2365,10 @@ function App() {
                           }))
                         }
                       />
-                    ))}
-                    {templateCustomFields.map((field) => (
+                  ))}
+                  {templateCustomFields.map((field) => (
                       <FieldOptionsEditor
                         key={field.key}
-                        field={field}
                         options={templateFieldOptions[field.key]}
                         onChange={(options) =>
                           setTemplateFieldOptions((current) => ({
@@ -2378,22 +2377,7 @@ function App() {
                           }))
                         }
                       />
-                    ))}
-                    {templateFieldAnalysis.headers
-                      .filter((header) => header.editable)
-                      .map((header) => (
-                        <FieldOptionsEditor
-                          key={header.key}
-                          field={header}
-                          options={templateFieldOptions[header.key]}
-                          onChange={(options) =>
-                            setTemplateFieldOptions((current) => ({
-                              ...current,
-                              [header.key]: options,
-                            }))
-                          }
-                        />
-                      ))}
+                  ))}
                 </section>
                 <div>
                   <h3 className="font-semibold text-slate-900">Field tambahan template</h3>
