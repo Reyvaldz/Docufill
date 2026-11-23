@@ -196,6 +196,8 @@ function App() {
   const [wallpaper, setWallpaper] = useState(loadSavedWallpaper)
   const [theme, setTheme] = useState(loadSavedTheme)
   const [wallpaperBusy, setWallpaperBusy] = useState(false)
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [returnToTemplatePicker, setReturnToTemplatePicker] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
   const [deletingDocumentId, setDeletingDocumentId] = useState(null)
@@ -266,6 +268,12 @@ function App() {
 
   const spreadsheetTemplates = templates.filter((template) =>
     template.file_name?.toLowerCase().endsWith('.xlsx'),
+  )
+  const categoryTemplates = spreadsheetTemplates.filter(
+    (template) => String(template.category_id) === selectedCategoryId,
+  )
+  const selectedCategory = categories.find(
+    (category) => String(category.id) === selectedCategoryId,
   )
   const submissionFields = {
     purpose:
@@ -494,13 +502,20 @@ function App() {
       ? '0 1px 4px rgba(0, 0, 0, 0.75)'
       : '0 1px 4px rgba(255, 255, 255, 0.85)'
 
-  const openNewDocument = (template = spreadsheetTemplates[0]) => {
+  const openNewDocument = (template) => {
     if (!template) {
-      setNotice('Unggah template Excel (.xlsx) terlebih dahulu untuk mulai mengisi dokumen.')
-      setDialog('upload-template')
+      if (!categories.length) {
+        setNotice('Kategori belum tersedia. Tambahkan kategori sebelum membuat template dokumen.')
+        return
+      }
+      setSelectedCategoryId('')
+      setReturnToTemplatePicker(false)
+      setDialog('choose-document-category')
       return
     }
 
+    setSelectedCategoryId(String(template.category_id))
+    setReturnToTemplatePicker(false)
     setFormTemplateId(String(template.id))
     setDocumentMode('create')
     setEditingDocumentId(null)
@@ -825,11 +840,19 @@ function App() {
   const uploadTemplate = async (event) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
+    const uploadedCategoryId = String(formData.get('category_id') || '')
     setSaving(true)
     try {
       await axios.post(`${API_URL}/templates`, formData)
       await refreshData()
-      setDialog(null)
+      if (returnToTemplatePicker && uploadedCategoryId) {
+        setSelectedCategoryId(uploadedCategoryId)
+        setDialog('choose-document-template')
+        setReturnToTemplatePicker(false)
+      } else {
+        setReturnToTemplatePicker(false)
+        setDialog(null)
+      }
       setNotice('Template berhasil diunggah.')
     } catch (error) {
       console.error('Unable to upload template', error)
@@ -1233,7 +1256,10 @@ function App() {
                 {activeSection === 'templates' && (
                   <button
                     type="button"
-                    onClick={() => setDialog('upload-template')}
+                    onClick={() => {
+                      setReturnToTemplatePicker(false)
+                      setDialog('upload-template')
+                    }}
                     className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-brand-600/20 hover:bg-brand-700"
                   >
                     <Plus size={16} />
@@ -1560,6 +1586,114 @@ function App() {
         </main>
       </div>
 
+      {dialog === 'choose-document-category' && (
+        <Modal title="Pilih kategori dokumen" onClose={() => setDialog(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Pilih kategori terlebih dahulu. Daftar berikutnya hanya menampilkan template Excel
+              yang terdaftar pada kategori tersebut.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {categories.map((category) => {
+                const templateCount = spreadsheetTemplates.filter(
+                  (template) => String(template.category_id) === String(category.id),
+                ).length
+
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategoryId(String(category.id))
+                      setDialog('choose-document-template')
+                    }}
+                    className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-300 hover:bg-brand-50"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                      <FolderKanban size={18} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-slate-900">{category.name}</span>
+                      <span className="mt-1 block text-sm text-slate-500">
+                        {category.description || 'Template dokumen untuk kategori ini.'}
+                      </span>
+                      <span className="mt-3 block text-xs font-medium text-brand-700">
+                        {templateCount} template Excel
+                      </span>
+                    </span>
+                    <ArrowUpRight className="mt-1 shrink-0 text-brand-700" size={16} />
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {dialog === 'choose-document-template' && (
+        <Modal
+          title={`Pilih template${selectedCategory ? ` · ${selectedCategory.name}` : ''}`}
+          onClose={() => setDialog(null)}
+        >
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setDialog('choose-document-category')}
+              className="text-sm font-medium text-brand-700 hover:underline"
+            >
+              Ganti kategori
+            </button>
+            {categoryTemplates.length ? (
+              <div className="grid gap-3">
+                {categoryTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => openNewDocument(template)}
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-300 hover:bg-brand-50"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                      <FileText size={18} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-slate-900">{template.name}</span>
+                      <span className="mt-1 block text-sm text-slate-500">
+                        {template.description || 'Template Excel siap digunakan.'}
+                      </span>
+                      <span className="mt-2 block text-xs text-slate-400">
+                        Versi {template.version}
+                      </span>
+                    </span>
+                    <ArrowUpRight className="shrink-0 text-brand-700" size={16} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
+                <FileText className="mx-auto text-slate-400" size={24} />
+                <p className="mt-3 font-semibold text-slate-900">
+                  Belum ada template Excel untuk kategori ini
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Unggah template baru dan pilih kategori {selectedCategory?.name || 'ini'}.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReturnToTemplatePicker(true)
+                    setDialog('upload-template')
+                  }}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                >
+                  <Plus size={16} />
+                  Unggah template
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
       {dialog === 'new-document' && (
         <Modal
           title={
@@ -1574,26 +1708,41 @@ function App() {
         >
           <form onSubmit={generateDocument} className="space-y-4">
             {documentMode === 'create' ? (
-              <label className="block text-sm font-medium text-slate-700">
-                Template Excel
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label
+                    htmlFor="document-template-select"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Template Excel · {selectedCategory?.name || 'Kategori'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setDialog('choose-document-category')}
+                    className="text-sm font-medium text-brand-700 hover:underline"
+                  >
+                    Ganti kategori
+                  </button>
+                </div>
                 <select
+                  id="document-template-select"
                   value={formTemplateId}
                   required
                   onChange={(event) => {
-                    const template = spreadsheetTemplates.find(
+                    const template = categoryTemplates.find(
                       (item) => String(item.id) === event.target.value,
                     )
                     if (template) openNewDocument(template)
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                 >
-                  {spreadsheetTemplates.map((template) => (
+                  {categoryTemplates.map((template) => (
                     <option key={template.id} value={template.id}>
                       {template.name}
                     </option>
                   ))}
                 </select>
-              </label>
+              </div>
             ) : (
               <p className="text-sm text-slate-600">
                 Template: <strong>{templateAnalysis?.template_name || 'Dokumen tersimpan'}</strong>
@@ -2322,7 +2471,13 @@ function App() {
       )}
 
       {dialog === 'upload-template' && (
-        <Modal title="Unggah template Excel" onClose={() => setDialog(null)}>
+        <Modal
+          title="Unggah template Excel"
+          onClose={() => {
+            setReturnToTemplatePicker(false)
+            setDialog(null)
+          }}
+        >
           <form onSubmit={uploadTemplate} className="space-y-5">
             <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-900">
               Isi detail template dan pilih file .xlsx. Setelah diunggah, Anda bisa menambahkan
@@ -2336,7 +2491,7 @@ function App() {
                 <select
                   name="category_id"
                   required
-                  defaultValue={categories[0]?.id || ''}
+                  defaultValue={selectedCategoryId || categories[0]?.id || ''}
                   className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
                 >
                   {categories.map((category) => (
