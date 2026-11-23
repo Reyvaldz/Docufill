@@ -1626,12 +1626,7 @@ function App() {
                         .filter((field) => !templateAnalysis.hidden_fields?.includes(field.key))
                         .map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
-                          <span className="flex items-center justify-between gap-2">
-                            {field.label}
-                            {!getSubmissionFieldType(field.label) && (
-                              <span className="text-xs font-normal text-slate-500">Opsional</span>
-                            )}
-                          </span>
+                          {field.label}
                           {field.options?.length ? (
                             <select
                               required={
@@ -1694,12 +1689,7 @@ function App() {
                     <div className="grid gap-3">
                       {customFields.map((field, index) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
-                          <span className="flex items-center justify-between gap-2">
-                            {field.label}
-                            {!getSubmissionFieldType(field.label) && (
-                              <span className="text-xs font-normal text-slate-500">Opsional</span>
-                            )}
-                          </span>
+                          {field.label}
                           {field.options?.length ? (
                             <select
                               required={
