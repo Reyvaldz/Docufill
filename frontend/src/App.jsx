@@ -98,12 +98,12 @@ function loadSavedWallpaper() {
   }
 }
 
-function FieldOptionsEditor({ options, onChange }) {
+function FieldOptionsEditor({ label, options, onChange }) {
   const fieldOptions = options ?? []
 
   return (
     <label className="block text-xs font-medium text-slate-600">
-      Pilihan dropdown (satu per baris)
+      Pilihan untuk {label || 'isian baru'} (satu per baris)
       <textarea
         rows={3}
         value={fieldOptions.join('\n')}
@@ -167,6 +167,7 @@ function App() {
   const [templateAnalysisError, setTemplateAnalysisError] = useState('')
   const [templateCustomFields, setTemplateCustomFields] = useState([])
   const [templateFieldOptions, setTemplateFieldOptions] = useState({})
+  const [templateHiddenFields, setTemplateHiddenFields] = useState([])
   const [folderPreview, setFolderPreview] = useState(null)
   const [folderWorkflowStep, setFolderWorkflowStep] = useState('review')
   const [folderWorkflowError, setFolderWorkflowError] = useState('')
@@ -189,15 +190,23 @@ function App() {
   )
   const submissionFields = {
     purpose:
-      templateAnalysis?.fields.find((field) => getSubmissionFieldType(field.label) === 'purpose') ||
+      templateAnalysis?.fields.find(
+        (field) =>
+          !templateAnalysis.hidden_fields?.includes(field.key) &&
+          getSubmissionFieldType(field.label) === 'purpose',
+      ) ||
       customFields.find((field) => getSubmissionFieldType(field.label) === 'purpose'),
     applicantName:
       templateAnalysis?.fields.find(
-        (field) => getSubmissionFieldType(field.label) === 'applicantName',
+        (field) =>
+          !templateAnalysis.hidden_fields?.includes(field.key) &&
+          getSubmissionFieldType(field.label) === 'applicantName',
       ) || customFields.find((field) => getSubmissionFieldType(field.label) === 'applicantName'),
     applicationDate:
       templateAnalysis?.fields.find(
-        (field) => getSubmissionFieldType(field.label) === 'applicationDate',
+        (field) =>
+          !templateAnalysis.hidden_fields?.includes(field.key) &&
+          getSubmissionFieldType(field.label) === 'applicationDate',
       ) || customFields.find((field) => getSubmissionFieldType(field.label) === 'applicationDate'),
   }
   const getCurrentSubmissionValue = (kind) => {
@@ -404,6 +413,7 @@ function App() {
     setEditingTemplateId(template.id)
     setTemplateCustomFields(template.custom_fields || [])
     setTemplateFieldOptions(template.field_options || {})
+    setTemplateHiddenFields(template.hidden_fields || [])
     setTemplateFieldAnalysis(null)
     setTemplateAnalysisError('')
     setDialog('edit-template-fields')
@@ -412,6 +422,7 @@ function App() {
       setTemplateFieldAnalysis(data)
       setTemplateCustomFields(data.custom_fields || [])
       setTemplateFieldOptions(data.field_options || template.field_options || {})
+      setTemplateHiddenFields(data.hidden_fields || template.hidden_fields || [])
     } catch (error) {
       console.error('Unable to load template form settings', error)
       setTemplateAnalysisError(
@@ -427,6 +438,7 @@ function App() {
       await axios.patch(`${API_URL}/templates/${editingTemplateId}`, {
         custom_fields: templateCustomFields,
         field_options: templateFieldOptions,
+        hidden_fields: templateHiddenFields,
       })
       await refreshData()
       setDialog(null)
@@ -439,6 +451,21 @@ function App() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const removeTemplateField = (fieldKey) => {
+    setTemplateHiddenFields((current) =>
+      current.includes(fieldKey) ? current : [...current, fieldKey],
+    )
+    setTemplateFieldOptions((current) => {
+      const next = { ...current }
+      delete next[fieldKey]
+      return next
+    })
+  }
+
+  const restoreTemplateField = (fieldKey) => {
+    setTemplateHiddenFields((current) => current.filter((key) => key !== fieldKey))
   }
 
   useEffect(() => {
@@ -1561,11 +1588,15 @@ function App() {
                     {diagnostic}
                   </p>
                 ))}
-                {templateAnalysis.fields.length > 0 && (
+                {templateAnalysis.fields.some(
+                  (field) => !templateAnalysis.hidden_fields?.includes(field.key),
+                ) && (
                   <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <h3 className="font-semibold text-slate-900">Informasi dokumen</h3>
                     <div className="grid gap-3">
-                      {templateAnalysis.fields.map((field) => (
+                      {templateAnalysis.fields
+                        .filter((field) => !templateAnalysis.hidden_fields?.includes(field.key))
+                        .map((field) => (
                         <label key={field.key} className="block text-sm font-medium text-slate-700">
                           <span className="flex items-center justify-between gap-2">
                             {field.label}
@@ -2230,34 +2261,47 @@ function App() {
                   {(templateFieldAnalysis.fields.length > 0 ||
                     templateCustomFields.length > 0) && (
                     <div className="grid gap-3">
-                      {templateFieldAnalysis.fields.map((field) => (
-                        <label
-                          key={field.key}
-                          className="block text-sm font-medium text-slate-700"
-                        >
-                          {field.label}
-                          {(templateFieldOptions[field.key] ?? field.options)?.length ? (
-                            <select
-                              disabled
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
-                            >
-                              <option>
-                                {(templateFieldOptions[field.key] ?? field.options)[0]}
-                              </option>
-                            </select>
-                          ) : (
-                            <input
-                              type={field.input_type || 'text'}
-                              disabled
-                              placeholder={`Contoh isian (${field.input_cell})`}
-                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
-                            />
-                          )}
-                          <span className="mt-1 block text-xs font-normal text-slate-500">
-                            Terdeteksi dari sel {field.input_cell}
-                          </span>
-                        </label>
-                      ))}
+                      {templateFieldAnalysis.fields
+                        .filter((field) => !templateHiddenFields.includes(field.key))
+                        .map((field) => (
+                          <div key={field.key}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-slate-700">
+                                {field.label}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeTemplateField(field.key)}
+                                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 size={14} />
+                                Hapus dari form
+                              </button>
+                            </div>
+                            <label className="block text-sm font-medium text-slate-700">
+                              {(templateFieldOptions[field.key] ?? field.options)?.length ? (
+                                <select
+                                  disabled
+                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                                >
+                                  <option>
+                                    {(templateFieldOptions[field.key] ?? field.options)[0]}
+                                  </option>
+                                </select>
+                              ) : (
+                                <input
+                                  type={field.input_type || 'text'}
+                                  disabled
+                                  placeholder={`Contoh isian (${field.input_cell})`}
+                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 disabled:opacity-100"
+                                />
+                              )}
+                              <span className="mt-1 block text-xs font-normal text-slate-500">
+                                Terdeteksi dari sel {field.input_cell}
+                              </span>
+                            </label>
+                          </div>
+                        ))}
                       {templateCustomFields.map((field) => (
                         <label
                           key={field.key}
@@ -2290,6 +2334,30 @@ function App() {
                           </span>
                         </label>
                       ))}
+                      {templateHiddenFields.length > 0 && (
+                        <div className="space-y-2 border-t border-slate-200 pt-3">
+                          <h4 className="text-sm font-semibold text-slate-800">
+                            Field dihapus dari form
+                          </h4>
+                          {templateFieldAnalysis.fields
+                            .filter((field) => templateHiddenFields.includes(field.key))
+                            .map((field) => (
+                              <div
+                                key={field.key}
+                                className="flex items-center justify-between gap-2"
+                              >
+                                <span className="text-sm text-slate-600">{field.label}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => restoreTemplateField(field.key)}
+                                  className="rounded px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-50"
+                                >
+                                  Pulihkan
+                                </button>
+                              </div>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {templateFieldAnalysis.headers.length > 0 && (
@@ -2346,44 +2414,39 @@ function App() {
                       </p>
                     )}
                 </section>
-                <section className="space-y-4 rounded-xl border border-slate-200 p-4">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Atur pilihan field form</h3>
-                    <p className="text-xs text-slate-500">
-                      Tulis satu pilihan per baris. Opsi Excel tidak diimpor; jika dikosongkan,
-                      field dapat diisi manual.
-                    </p>
-                  </div>
-                  {templateFieldAnalysis.fields.map((field) => (
-                      <FieldOptionsEditor
-                        key={field.key}
-                        options={templateFieldOptions[field.key]}
-                        onChange={(options) =>
-                          setTemplateFieldOptions((current) => ({
-                            ...current,
-                            [field.key]: options,
-                          }))
-                        }
-                      />
-                  ))}
-                  {templateCustomFields.map((field) => (
-                      <FieldOptionsEditor
-                        key={field.key}
-                        options={templateFieldOptions[field.key]}
-                        onChange={(options) =>
-                          setTemplateFieldOptions((current) => ({
-                            ...current,
-                            [field.key]: options,
-                          }))
-                        }
-                      />
-                  ))}
-                </section>
+                {templateFieldAnalysis.fields.some(
+                  (field) => !templateHiddenFields.includes(field.key),
+                ) && (
+                  <section className="space-y-4 rounded-xl border border-slate-200 p-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">Atur pilihan field form</h3>
+                      <p className="text-xs text-slate-500">
+                        Tulis satu pilihan per baris. Opsi Excel tidak diimpor; jika dikosongkan,
+                        field dapat diisi manual.
+                      </p>
+                    </div>
+                    {templateFieldAnalysis.fields
+                      .filter((field) => !templateHiddenFields.includes(field.key))
+                      .map((field) => (
+                        <FieldOptionsEditor
+                          key={field.key}
+                          label={field.label}
+                          options={templateFieldOptions[field.key]}
+                          onChange={(options) =>
+                            setTemplateFieldOptions((current) => ({
+                              ...current,
+                              [field.key]: options,
+                            }))
+                          }
+                        />
+                      ))}
+                  </section>
+                )}
                 <div>
                   <h3 className="font-semibold text-slate-900">Field tambahan template</h3>
                   <p className="text-xs text-slate-500">
-                    Tambahkan bagian yang belum terwakili. Pilih sel kosong pada sheet Excel,
-                    lalu field ini akan tersedia otomatis saat mengisi dokumen.
+                    Tambahkan isian baru dengan judul, sel Excel tujuan, dan pilihan dropdown
+                    buatan Anda sendiri.
                   </p>
                 </div>
                 <div className="flex justify-end">
@@ -2413,7 +2476,7 @@ function App() {
                     className="grid gap-3 rounded-lg bg-slate-50 p-3"
                   >
                     <label className="text-sm font-medium text-slate-700">
-                      Label isian
+                      Judul isian
                       <input
                         required
                         value={field.label}
@@ -2447,6 +2510,16 @@ function App() {
                         className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
                       />
                     </label>
+                    <FieldOptionsEditor
+                      label={field.label}
+                      options={templateFieldOptions[field.key]}
+                      onChange={(options) =>
+                        setTemplateFieldOptions((current) => ({
+                          ...current,
+                          [field.key]: options,
+                        }))
+                      }
+                    />
                     <label className="text-sm font-medium text-slate-700">
                       Jenis
                       <select
@@ -2469,18 +2542,16 @@ function App() {
                     </label>
                     <button
                       type="button"
-                      onClick={() =>
-                        {
-                          setTemplateCustomFields((current) =>
-                            current.filter((_, itemIndex) => itemIndex !== index),
-                          )
-                          setTemplateFieldOptions((current) => {
-                            const next = { ...current }
-                            delete next[field.key]
-                            return next
-                          })
-                        }
-                      }
+                      onClick={() => {
+                        setTemplateCustomFields((current) =>
+                          current.filter((_, itemIndex) => itemIndex !== index),
+                        )
+                        setTemplateFieldOptions((current) => {
+                          const next = { ...current }
+                          delete next[field.key]
+                          return next
+                        })
+                      }}
                       aria-label={`Hapus ${field.label || 'isian tambahan'}`}
                       className="self-end rounded-lg px-3 py-2 text-red-700 hover:bg-red-50"
                     >

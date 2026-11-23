@@ -17,6 +17,7 @@ def analyze_spreadsheet(
     include_existing_fields: bool = False,
     custom_fields: list[dict] | None = None,
     field_options: dict[str, list[str]] | None = None,
+    hidden_fields: list[str] | None = None,
 ) -> dict:
     has_field_options = field_options is not None
     field_options = field_options or {}
@@ -56,6 +57,8 @@ def analyze_spreadsheet(
         ]
     if has_field_options:
         analysis['field_options'] = field_options
+    if hidden_fields is not None:
+        analysis['hidden_fields'] = hidden_fields
     workbook.close()
     return analysis
 
@@ -547,7 +550,7 @@ def generate_spreadsheet(
         for field in analysis['fields']:
             _set_input_value(
                 worksheet.cell(field['row'], field['column']),
-                fields.get(field['key']),
+                '' if field['key'] in analysis.get('hidden_fields', []) else fields.get(field['key']),
                 field.get('input_type', 'text'),
             )
 

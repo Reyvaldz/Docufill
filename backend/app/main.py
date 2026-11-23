@@ -97,6 +97,11 @@ def startup_event() -> None:
             connection.execute(
                 text("ALTER TABLE templates ADD COLUMN field_options TEXT NOT NULL DEFAULT '{}'")
             )
+    if 'hidden_fields' not in template_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE templates ADD COLUMN hidden_fields TEXT NOT NULL DEFAULT '[]'")
+            )
     document_columns = {column['name'] for column in inspect(engine).get_columns('documents')}
     if 'folder_name' not in document_columns:
         with engine.begin() as connection:
@@ -139,6 +144,7 @@ def list_templates(db: Session = Depends(get_db)) -> list[dict]:
             'file_name': template.file_name,
             'custom_fields': json.loads(template.custom_fields or '[]'),
             'field_options': json.loads(template.field_options or '{}'),
+            'hidden_fields': json.loads(template.hidden_fields or '[]'),
             'created_at': template.created_at.isoformat() if template.created_at else None,
         }
         for template in templates
@@ -223,6 +229,14 @@ def _normalize_field_options(field_options: dict, allowed_keys: set[str]) -> dic
     return normalized
 
 
+def _normalize_hidden_fields(hidden_fields: list, allowed_keys: set[str]) -> list[str]:
+    if not isinstance(hidden_fields, list) or len(hidden_fields) > 100:
+        raise ValueError('Daftar field yang dihapus tidak valid.')
+    if any(not isinstance(key, str) or key not in allowed_keys for key in hidden_fields):
+        raise ValueError('Field form yang akan dihapus tidak dikenal.')
+    return list(dict.fromkeys(hidden_fields))
+
+
 @app.patch('/api/templates/{template_id}')
 def update_template_fields(template_id: int, payload: dict, db: Session = Depends(get_db)) -> dict:
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -237,6 +251,10 @@ def update_template_fields(template_id: int, payload: dict, db: Session = Depend
     field_options = payload.get(
         'field_options',
         json.loads(template.field_options or '{}'),
+    )
+    hidden_fields = payload.get(
+        'hidden_fields',
+        json.loads(template.hidden_fields or '[]'),
     )
 
     template_path = (TEMPLATE_DIR / template.file_name).resolve()
@@ -272,16 +290,22 @@ def update_template_fields(template_id: int, payload: dict, db: Session = Depend
             field_options,
             allowed_option_keys,
         )
+        normalized_hidden_fields = _normalize_hidden_fields(
+            hidden_fields,
+            {field['key'] for field in analysis['fields']},
+        )
     except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
     template.custom_fields = json.dumps(normalized_fields, ensure_ascii=False)
     template.field_options = json.dumps(normalized_options, ensure_ascii=False)
+    template.hidden_fields = json.dumps(normalized_hidden_fields, ensure_ascii=False)
     db.commit()
     return {
         'id': template.id,
         'custom_fields': normalized_fields,
         'field_options': normalized_options,
+        'hidden_fields': normalized_hidden_fields,
     }
 
 
@@ -324,6 +348,7 @@ def analyze_template(template_id: int, db: Session = Depends(get_db)) -> dict:
             template_path,
             custom_fields=json.loads(template.custom_fields or '[]'),
             field_options=json.loads(template.field_options or '{}'),
+            hidden_fields=json.loads(template.hidden_fields or '[]'),
         )
         return analysis
     except (OSError, ValueError, InvalidFileException, BadZipFile) as error:
@@ -431,6 +456,7 @@ def _spreadsheet_document_source(document: DocumentRecord, db: Session):
         include_existing_fields=source_path == output_path,
         custom_fields=custom_fields,
         field_options=field_options,
+        hidden_fields=json.loads(template.hidden_fields or '[]') if template else None,
     )
     data = extract_spreadsheet_data(output_path, analysis)
     if analysis.get('custom_fields'):
@@ -606,7 +632,10 @@ def generate_document(payload: dict, db: Session = Depends(get_db)) -> dict:
         if not template_path.is_relative_to(TEMPLATE_DIR.resolve()) or not template_path.is_file():
             raise HTTPException(status_code=404, detail='Template file not found')
         try:
-            analysis = analyze_spreadsheet(template_path)
+            analysis = analyze_spreadsheet(
+                template_path,
+                hidden_fields=json.loads(template_row.hidden_fields or '[]'),
+            )
             generated_name = f'{uuid.uuid4().hex}.xlsx'
             output_path = GENERATED_DIR / generated_name
             generate_spreadsheet(

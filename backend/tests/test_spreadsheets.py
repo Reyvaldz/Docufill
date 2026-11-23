@@ -188,6 +188,31 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
         })
         self.assertEqual(items, generated_data['items'])
 
+    def test_removed_form_fields_are_cleared_in_generated_document(self):
+        sample_path = PROJECT_ROOT / 'samples' / 'sample-reimbursement.xlsx'
+        analysis = analyze_spreadsheet(sample_path)
+        hidden_key = analysis['fields'][0]['key']
+        analysis['hidden_fields'] = [hidden_key]
+        fields = {
+            field['key']: (
+                '2026-11-23'
+                if field['input_type'] == 'date'
+                else '42'
+                if field['input_type'] == 'number'
+                else f"Value for {field['label']}"
+            )
+            for field in analysis['fields']
+        }
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_path = Path(temporary_directory) / 'generated.xlsx'
+            generate_spreadsheet(sample_path, output_path, analysis, fields, [{}])
+            generated_data = extract_spreadsheet_data(output_path, analysis)
+
+        self.assertEqual('', generated_data['fields'][hidden_key])
+        for field in analysis['fields'][1:]:
+            self.assertEqual(fields[field['key']], generated_data['fields'][field['key']])
+
 
 if __name__ == '__main__':
     unittest.main()
