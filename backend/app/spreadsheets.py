@@ -23,12 +23,44 @@ def analyze_spreadsheet(
     field_options = field_options or {}
     workbook = load_workbook(file_path)
     candidates = []
-    for worksheet in workbook.worksheets:
+    form_worksheets = [
+        worksheet for worksheet in workbook.worksheets if _is_form_worksheet(worksheet.title)
+    ]
+    form_sections = [
+        (worksheet, start_row, end_row)
+        for worksheet in workbook.worksheets
+        for start_row, end_row in _form_section_ranges(worksheet)
+    ]
+    has_section_titles = any(
+        _has_section_titles(worksheet)
+        for worksheet in workbook.worksheets
+    )
+    if form_worksheets:
+        targets = [
+            (
+                worksheet,
+                section[0],
+                section[1],
+            )
+            for worksheet in form_worksheets
+            for section in (_form_section_ranges(worksheet) or [(1, worksheet.max_row)])
+        ]
+    elif has_section_titles:
+        targets = form_sections
+    else:
+        targets = [
+            (worksheet, 1, worksheet.max_row)
+            for worksheet in workbook.worksheets
+        ]
+
+    for worksheet, start_row, end_row in targets:
         analysis = _analyze_worksheet(
             workbook,
             worksheet,
             include_existing_fields,
             field_options,
+            start_row,
+            end_row,
         )
         if analysis['headers']:
             candidates.append(analysis)
@@ -36,7 +68,7 @@ def analyze_spreadsheet(
     if not candidates:
         workbook.close()
         raise ValueError(
-            'Tidak ditemukan tabel dengan sedikitnya dua judul kolom berurutan pada file Excel.'
+            'Tidak ditemukan tabel dengan sedikitnya dua judul kolom berurutan pada bagian Form.'
         )
 
     analysis = max(
@@ -63,13 +95,80 @@ def analyze_spreadsheet(
     return analysis
 
 
+def _normalized_section_title(value: str) -> str:
+    return re.sub(r'[^a-z0-9]+', ' ', value.casefold()).strip()
+
+
+def _is_form_worksheet(title: str) -> bool:
+    normalized = _normalized_section_title(title)
+    if normalized.startswith(('panduan', 'contoh')):
+        return False
+    return (
+        normalized == 'form'
+        or normalized.startswith(('form ', 'formulir', 'bagian form'))
+        or normalized.endswith(' form')
+    )
+
+
+def _is_form_section_title(value: str) -> bool:
+    normalized = _normalized_section_title(value)
+    if normalized.startswith(('panduan', 'contoh')):
+        return False
+    return (
+        normalized == 'form'
+        or normalized.startswith(('form ', 'formulir', 'bagian form'))
+        or normalized.endswith(' form')
+    )
+
+
+def _is_other_section_title(value: str) -> bool:
+    normalized = _normalized_section_title(value)
+    return normalized.startswith(('panduan', 'contoh'))
+
+
+def _has_section_titles(worksheet: Worksheet) -> bool:
+    return any(
+        isinstance(cell.value, str)
+        and (_is_form_section_title(cell.value) or _is_other_section_title(cell.value))
+        for cell in worksheet._cells.values()
+    )
+
+
+def _form_section_ranges(worksheet: Worksheet) -> list[tuple[int, int]]:
+    form_rows = set()
+    boundary_rows = set()
+    for cell in worksheet._cells.values():
+        if not isinstance(cell.value, str):
+            continue
+        if _is_form_section_title(cell.value):
+            form_rows.add(cell.row)
+        elif _is_other_section_title(cell.value):
+            boundary_rows.add(cell.row)
+
+    section_rows = sorted(form_rows | boundary_rows)
+    ranges = []
+    for form_row in sorted(form_rows):
+        next_section_row = next(
+            (row for row in section_rows if row > form_row),
+            worksheet.max_row + 1,
+        )
+        start_row = form_row + 1
+        end_row = next_section_row - 1
+        if start_row <= end_row:
+            ranges.append((start_row, end_row))
+    return ranges
+
+
 def _analyze_worksheet(
     workbook,
     worksheet: Worksheet,
     include_existing_fields: bool = False,
     field_options: dict[str, list[str]] | None = None,
+    start_row: int = 1,
+    end_row: int | None = None,
 ) -> dict:
     field_options = field_options or {}
+    end_row = min(end_row or worksheet.max_row, worksheet.max_row)
     max_column = _last_content_column(worksheet)
     merged_ranges = [
         {
@@ -80,7 +179,7 @@ def _analyze_worksheet(
     ]
 
     header_candidates = []
-    for row_index in range(1, worksheet.max_row + 1):
+    for row_index in range(start_row, end_row + 1):
         run = []
         runs = []
         for column_index in range(1, max_column + 1):
@@ -145,7 +244,7 @@ def _analyze_worksheet(
     header_row = header_candidate['header_row']
     fields = []
     seen_targets = set()
-    for row_index in range(1, header_row):
+    for row_index in range(start_row, header_row):
         for column_index in range(1, max_column + 1):
             cell = worksheet.cell(row_index, column_index)
             label = cell.value
@@ -181,7 +280,7 @@ def _analyze_worksheet(
                 break
 
     diagnostics = []
-    footer_row = _find_total_row(worksheet, header_row, max_column)
+    footer_row = _find_total_row(worksheet, header_row, max_column, end_row)
     max_items = footer_row - header_row - 1 if footer_row else None
     if not fields:
         diagnostics.append(
@@ -404,8 +503,14 @@ def _last_content_column(worksheet: Worksheet) -> int:
     )
 
 
-def _find_total_row(worksheet: Worksheet, header_row: int, max_column: int) -> int | None:
-    for row_index in range(header_row + 1, worksheet.max_row + 1):
+def _find_total_row(
+    worksheet: Worksheet,
+    header_row: int,
+    max_column: int,
+    end_row: int | None = None,
+) -> int | None:
+    last_row = min(end_row or worksheet.max_row, worksheet.max_row)
+    for row_index in range(header_row + 1, last_row + 1):
         for column_index in range(1, max_column + 1):
             value = worksheet.cell(row_index, column_index).value
             if isinstance(value, str) and value.strip().casefold().startswith('total'):

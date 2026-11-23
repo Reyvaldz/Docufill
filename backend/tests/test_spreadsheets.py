@@ -53,6 +53,66 @@ class AnalyzeSpreadsheetTests(unittest.TestCase):
         )
         self.assertEqual('date', analysis['fields'][1]['input_type'])
 
+    def test_selects_form_worksheet_over_guide_and_example_sheets(self):
+        workbook = Workbook()
+        guide = workbook.active
+        guide.title = 'Panduan Pengisian'
+        guide.append(['Panduan'])
+        guide.append(['Langkah', 'Keterangan', 'Catatan', 'Contoh'])
+        form = workbook.create_sheet('Form')
+        form['A1'] = 'Form'
+        form['A2'] = 'Departemen'
+        form['A4'] = 'Nama Item'
+        form['B4'] = 'Jumlah'
+        form['C4'] = 'Satuan'
+        example = workbook.create_sheet('Contoh Pengisian')
+        example['A1'] = 'Contoh Pengisian'
+        example['A3'] = 'Nama Item'
+        example['B3'] = 'Jumlah'
+        example['C3'] = 'Satuan'
+        example['D3'] = 'Keterangan'
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = Path(temporary_directory) / 'template.xlsx'
+            workbook.save(file_path)
+            workbook.close()
+            analysis = analyze_spreadsheet(file_path)
+
+        self.assertEqual('Form', analysis['sheet_name'])
+        self.assertEqual(['Nama Item', 'Jumlah', 'Satuan'], [
+            header['label'] for header in analysis['headers']
+        ])
+        self.assertEqual(['Departemen'], [field['label'] for field in analysis['fields']])
+
+    def test_selects_form_section_and_ignores_guide_and_example_sections(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet['A1'] = 'Panduan Pengisian'
+        worksheet['A2'] = 'Langkah'
+        worksheet['B2'] = 'Keterangan'
+        worksheet['C2'] = 'Catatan'
+        worksheet['A5'] = 'Form'
+        worksheet['A6'] = 'Departemen'
+        worksheet['A8'] = 'Nama Item'
+        worksheet['B8'] = 'Jumlah'
+        worksheet['C12'] = 'Contoh Pengisian'
+        worksheet['A14'] = 'Nama Item'
+        worksheet['B14'] = 'Jumlah'
+        worksheet['C14'] = 'Satuan'
+        worksheet['D14'] = 'Keterangan'
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = Path(temporary_directory) / 'template.xlsx'
+            workbook.save(file_path)
+            workbook.close()
+            analysis = analyze_spreadsheet(file_path)
+
+        self.assertEqual(8, analysis['header_row'])
+        self.assertEqual(['Nama Item', 'Jumlah'], [
+            header['label'] for header in analysis['headers']
+        ])
+        self.assertEqual(['Departemen'], [field['label'] for field in analysis['fields']])
+
     def test_excel_options_are_ignored_for_form_fields_but_kept_for_item_fields(self):
         workbook = Workbook()
         worksheet = workbook.active
