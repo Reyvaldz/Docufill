@@ -102,30 +102,53 @@ function FieldOptionsEditor({ label, options, onChange }) {
   const fieldOptions = options ?? []
 
   return (
-    <label className="block text-xs font-medium text-slate-600">
-      Pilihan untuk {label || 'isian baru'} (satu per baris)
-      <textarea
-        rows={3}
-        value={fieldOptions.join('\n')}
-        onChange={(event) =>
-          onChange(
-            event.target.value
-              .split(/\r?\n/)
-              .map((option) => option.trim())
-              .filter(Boolean),
-          )
-        }
-        placeholder="Contoh:
-Operasional
-Keuangan"
-        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal"
-      />
-      <span className="mt-1 block font-normal">
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+      <p className="text-xs font-medium text-slate-700">
+        Opsi untuk {label || 'isian baru'}
+      </p>
+      {fieldOptions.map((option, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <input
+            value={option}
+            maxLength={200}
+            aria-label={`Opsi ${index + 1} untuk ${label || 'isian baru'}`}
+            onChange={(event) =>
+              onChange(
+                fieldOptions.map((currentOption, optionIndex) =>
+                  optionIndex === index ? event.target.value : currentOption,
+                ),
+              )
+            }
+            placeholder={`Opsi ${index + 1}`}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            aria-label={`Hapus opsi ${index + 1} untuk ${label || 'isian baru'}`}
+            onClick={() =>
+              onChange(fieldOptions.filter((_, optionIndex) => optionIndex !== index))
+            }
+            className="rounded-lg p-2 text-red-700 hover:bg-red-50"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        disabled={fieldOptions.length >= 100}
+        onClick={() => onChange([...fieldOptions, ''])}
+        className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-3 py-2 text-xs font-medium text-brand-700 disabled:opacity-50"
+      >
+        <Plus size={14} />
+        Tambah opsi
+      </button>
+      <p className="text-xs text-slate-500">
         {fieldOptions.length
-          ? 'Pengguna akan memilih salah satu opsi ini saat membuat dokumen.'
-          : 'Kosongkan agar field bisa diisi manual.'}
-      </span>
-    </label>
+          ? 'Pilihan ini muncul sebagai dropdown. Baris kosong tidak disimpan.'
+          : 'Belum ada opsi; field tetap bisa diisi manual.'}
+      </p>
+    </div>
   )
 }
 
@@ -437,7 +460,12 @@ function App() {
     try {
       await axios.patch(`${API_URL}/templates/${editingTemplateId}`, {
         custom_fields: templateCustomFields,
-        field_options: templateFieldOptions,
+        field_options: Object.fromEntries(
+          Object.entries(templateFieldOptions).map(([key, options]) => [
+            key,
+            options.map((option) => option.trim()).filter(Boolean),
+          ]),
+        ),
         hidden_fields: templateHiddenFields,
       })
       await refreshData()
@@ -2300,6 +2328,16 @@ function App() {
                                 Terdeteksi dari sel {field.input_cell}
                               </span>
                             </label>
+                            <FieldOptionsEditor
+                              label={field.label}
+                              options={templateFieldOptions[field.key]}
+                              onChange={(options) =>
+                                setTemplateFieldOptions((current) => ({
+                                  ...current,
+                                  [field.key]: options,
+                                }))
+                              }
+                            />
                           </div>
                         ))}
                       {templateCustomFields.map((field) => (
@@ -2414,34 +2452,6 @@ function App() {
                       </p>
                     )}
                 </section>
-                {templateFieldAnalysis.fields.some(
-                  (field) => !templateHiddenFields.includes(field.key),
-                ) && (
-                  <section className="space-y-4 rounded-xl border border-slate-200 p-4">
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Atur pilihan field form</h3>
-                      <p className="text-xs text-slate-500">
-                        Tulis satu pilihan per baris. Opsi Excel tidak diimpor; jika dikosongkan,
-                        field dapat diisi manual.
-                      </p>
-                    </div>
-                    {templateFieldAnalysis.fields
-                      .filter((field) => !templateHiddenFields.includes(field.key))
-                      .map((field) => (
-                        <FieldOptionsEditor
-                          key={field.key}
-                          label={field.label}
-                          options={templateFieldOptions[field.key]}
-                          onChange={(options) =>
-                            setTemplateFieldOptions((current) => ({
-                              ...current,
-                              [field.key]: options,
-                            }))
-                          }
-                        />
-                      ))}
-                  </section>
-                )}
                 <div>
                   <h3 className="font-semibold text-slate-900">Field tambahan template</h3>
                   <p className="text-xs text-slate-500">
